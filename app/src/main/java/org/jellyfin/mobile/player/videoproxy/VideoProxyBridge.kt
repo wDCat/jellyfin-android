@@ -198,30 +198,33 @@ class VideoProxyBridge(
     }
 
     /**
-     * Check if a URL should be handled by the proxy.
-     * Supports both Direct Play URLs and HLS URLs (resolved from blob: by JS).
-     * ExoPlayer has native HLS support, so we can proxy .m3u8 streams too.
-     *
-     * @param url The video URL to check (must be a real HTTP/HTTPS URL, not blob:)
+     * Check if a URL should be handled by the proxy (Direct Play only).
+     * @param url The video URL to check
      * @return true if the URL should be proxied, false otherwise
      */
     @JavascriptInterface
     fun shouldProxyUrl(url: String): Boolean {
         // Reject non-HTTP(S) URLs that ExoPlayer cannot handle.
         // blob: URLs are created by the browser via URL.createObjectURL(MediaSource)
-        // and are internal browser references that ExoPlayer cannot resolve.
+        // for hls.js MSE playback — these are browser-internal references.
         // data: URLs are also browser-only constructs.
         if (url.startsWith("blob:") || url.startsWith("data:")) {
             Timber.d("Should proxy URL: false (unsupported scheme) - ${url.take(80)}")
             return false
         }
 
-        // Proxy any HTTP(S) URL when proxy is enabled.
-        // This includes both direct play URLs and HLS .m3u8 URLs
-        // (which JS resolves from blob: URLs created by hls.js).
-        // ExoPlayer handles both direct streams and HLS natively.
-        val shouldProxy = appPreferences.videoProxyEnabled
-        Timber.d("Should proxy URL: $shouldProxy - $url")
+        // Only proxy direct play URLs, not transcoding/HLS streams.
+        // HLS streams are handled by hls.js in the WebView via MSE (blob: URLs,
+        // filtered above). Even if somehow a raw .m3u8 URL reaches here, we
+        // skip it because intercepting hls.js's MSE pipeline breaks playback.
+        val isTranscoding = url.contains("/videos/") && (
+            url.contains("/master.m3u8") ||
+            url.contains("/main.m3u8") ||
+            url.contains("/stream.m3u8") ||
+            url.contains("TranscodingContainer=")
+        )
+        val shouldProxy = !isTranscoding && appPreferences.videoProxyEnabled
+        Timber.d("Should proxy URL: $shouldProxy (isTranscoding=$isTranscoding) - $url")
         return shouldProxy
     }
 }
