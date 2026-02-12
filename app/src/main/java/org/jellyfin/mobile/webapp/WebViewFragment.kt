@@ -144,6 +144,10 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 coroutineScope = lifecycleScope,
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, webView)
+                manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)
+                binding.videoProxyDebugClose.setOnClickListener {
+                    manager.hideDebugInfo()
+                }
                 
                 // Forward events from bridge to manager
                 lifecycleScope.launch {

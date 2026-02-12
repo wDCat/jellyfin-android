@@ -188,6 +188,16 @@ class VideoProxyBridge(
     }
 
     /**
+     * Toggle ExoPlayer debug info overlay.
+     * Called from the injected OSD button in the Jellyfin web player.
+     */
+    @JavascriptInterface
+    fun toggleDebugInfo() {
+        Timber.d("Toggle debug info")
+        videoProxyEventChannel.trySend(VideoProxyEvent.ToggleDebugInfo)
+    }
+
+    /**
      * Check if a URL should be handled by the proxy (Direct Play only).
      * @param url The video URL to check
      * @return true if the URL should be proxied, false otherwise
@@ -235,4 +245,5 @@ sealed class VideoProxyEvent {
     data class SetAudioTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class SetSubtitleTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class DisableSubtitleTrack(val videoId: String) : VideoProxyEvent()
+    data object ToggleDebugInfo : VideoProxyEvent()
 }

@@ -11,6 +11,8 @@ import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.Tracks
+import com.google.android.exoplayer2.analytics.AnalyticsListener
+import com.google.android.exoplayer2.decoder.DecoderCounters
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo
 import com.google.android.exoplayer2.mediacodec.MediaCodecSelector
 import com.google.android.exoplayer2.text.CueGroup
@@ -19,6 +21,7 @@ import com.google.android.exoplayer2.ui.SubtitleView
 import com.google.android.exoplayer2.util.MimeTypes
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import timber.log.Timber
+import java.util.Locale
 
 /**
  * Callback interface for video proxy player events.
@@ -56,6 +59,34 @@ data class ProxyTrackInfo(
 )
 
 /**
+ * Debug information collected from ExoPlayer.
+ */
+data class VideoProxyDebugInfo(
+    val videoId: String = "",
+    val hasExoPlayer: Boolean = false,
+    val isProxying: Boolean = false,
+    val sourceUrl: String = "",
+    val playbackState: String = "NO_PLAYER",
+    val videoDecoderName: String = "N/A",
+    val audioDecoderName: String = "N/A",
+    val videoFormat: String = "N/A",
+    val audioFormat: String = "N/A",
+    val resolution: String = "N/A",
+    val frameRate: String = "N/A",
+    val videoBitrate: String = "N/A",
+    val audioBitrate: String = "N/A",
+    val droppedFrames: Long = 0,
+    val renderedFrames: Long = 0,
+    val bufferPosition: Long = 0,
+    val currentPosition: Long = 0,
+    val duration: Long = 0,
+    val playbackSpeed: Float = 1f,
+    val volume: Float = 1f,
+    val isHardwareDecoding: Boolean = false,
+    val surfaceSize: String = "N/A",
+)
+
+/**
  * A lightweight ExoPlayer wrapper for video element proxy playback.
  * This player renders video content to overlay the HTML video element.
  */
@@ -77,6 +108,12 @@ class VideoProxyPlayer(
     // Cached track groups for selection by index
     private var audioTrackGroups: List<Tracks.Group> = emptyList()
     private var subtitleTrackGroups: List<Tracks.Group> = emptyList()
+
+    // Debug info tracking
+    private var videoDecoderName: String = "N/A"
+    private var audioDecoderName: String = "N/A"
+    private var droppedFrameCount: Long = 0
+    private var currentSourceUrl: String = ""
 
     /**
      * Initialize the ExoPlayer instance.
@@ -116,6 +153,49 @@ class VideoProxyPlayer(
         }.build().apply {
             addListener(this@VideoProxyPlayer)
             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
+
+            // Add analytics listener for debug info collection
+            addAnalyticsListener(object : AnalyticsListener {
+                override fun onVideoDecoderInitialized(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                    initializedTimestampMs: Long,
+                    initializationDurationMs: Long,
+                ) {
+                    videoDecoderName = decoderName
+                }
+
+                override fun onAudioDecoderInitialized(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                    initializedTimestampMs: Long,
+                    initializationDurationMs: Long,
+                ) {
+                    audioDecoderName = decoderName
+                }
+
+                override fun onDroppedVideoFrames(
+                    eventTime: AnalyticsListener.EventTime,
+                    droppedFrames: Int,
+                    elapsedMs: Long,
+                ) {
+                    droppedFrameCount += droppedFrames
+                }
+
+                override fun onVideoDecoderReleased(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                ) {
+                    videoDecoderName = "N/A"
+                }
+
+                override fun onAudioDecoderReleased(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                ) {
+                    audioDecoderName = "N/A"
+                }
+            })
         }
 
         textureView?.let { player?.setVideoTextureView(it) }
@@ -143,6 +223,7 @@ class VideoProxyPlayer(
         val player = player ?: return
         
         Timber.d("Setting source for $videoId: $url")
+        currentSourceUrl = url
         
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(url))
@@ -264,6 +345,108 @@ class VideoProxyPlayer(
 
         // Clear subtitle view
         subtitleView?.setCues(emptyList())
+    }
+
+    /**
+     * Get current debug information from the ExoPlayer instance.
+     */
+    fun getDebugInfo(): VideoProxyDebugInfo {
+        val player = player
+        if (player == null) {
+            return VideoProxyDebugInfo(
+                videoId = videoId,
+                hasExoPlayer = false,
+                isProxying = currentSourceUrl.isNotEmpty(),
+                sourceUrl = currentSourceUrl,
+                playbackState = "NO_PLAYER (null)",
+            )
+        }
+
+        val videoFormat = player.videoFormat
+        val audioFormat = player.audioFormat
+
+        val playbackStateStr = when (player.playbackState) {
+            Player.STATE_IDLE -> if (currentSourceUrl.isEmpty()) "IDLE (no source)" else "IDLE"
+            Player.STATE_BUFFERING -> "BUFFERING"
+            Player.STATE_READY -> if (player.isPlaying) "PLAYING" else "PAUSED"
+            Player.STATE_ENDED -> "ENDED"
+            else -> "UNKNOWN(${player.playbackState})"
+        }
+
+        val resolutionStr = videoFormat?.let { "${it.width}x${it.height}" } ?: "N/A"
+        val frameRateStr = videoFormat?.frameRate?.let {
+            if (it > 0) String.format(Locale.US, "%.2f fps", it) else "N/A"
+        } ?: "N/A"
+
+        val videoBitrateStr = videoFormat?.bitrate?.takeIf { it > 0 }?.let {
+            formatBitrate(it.toLong())
+        } ?: "N/A"
+        val audioBitrateStr = audioFormat?.bitrate?.takeIf { it > 0 }?.let {
+            formatBitrate(it.toLong())
+        } ?: "N/A"
+
+        val videoFormatStr = videoFormat?.let {
+            buildString {
+                append(it.sampleMimeType ?: "unknown")
+                it.codecs?.let { codecs -> append(" ($codecs)") }
+            }
+        } ?: "N/A"
+
+        val audioFormatStr = audioFormat?.let {
+            buildString {
+                append(it.sampleMimeType ?: "unknown")
+                it.channelCount.takeIf { ch -> ch > 0 }?.let { ch -> append(" ${ch}ch") }
+                it.sampleRate.takeIf { sr -> sr > 0 }?.let { sr -> append(" ${sr}Hz") }
+            }
+        } ?: "N/A"
+
+        val renderedFrames = try {
+            player.videoDecoderCounters?.renderedOutputBufferCount?.toLong() ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
+
+        val surfaceSizeStr = textureView?.let { "${it.width}x${it.height}" } ?: "N/A"
+
+        val isHw = videoDecoderName.contains("c2.", ignoreCase = true) ||
+            videoDecoderName.contains("OMX.", ignoreCase = true) ||
+            (!videoDecoderName.contains("ffmpeg", ignoreCase = true) &&
+                !videoDecoderName.contains("libvpx", ignoreCase = true) &&
+                !videoDecoderName.contains("libdav1d", ignoreCase = true) &&
+                videoDecoderName != "N/A")
+
+        return VideoProxyDebugInfo(
+            videoId = videoId,
+            hasExoPlayer = true,
+            isProxying = currentSourceUrl.isNotEmpty(),
+            sourceUrl = currentSourceUrl,
+            playbackState = playbackStateStr,
+            videoDecoderName = videoDecoderName,
+            audioDecoderName = audioDecoderName,
+            videoFormat = videoFormatStr,
+            audioFormat = audioFormatStr,
+            resolution = resolutionStr,
+            frameRate = frameRateStr,
+            videoBitrate = videoBitrateStr,
+            audioBitrate = audioBitrateStr,
+            droppedFrames = droppedFrameCount,
+            renderedFrames = renderedFrames,
+            bufferPosition = player.bufferedPosition,
+            currentPosition = player.currentPosition,
+            duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
+            playbackSpeed = player.playbackParameters.speed,
+            volume = player.volume,
+            isHardwareDecoding = isHw,
+            surfaceSize = surfaceSizeStr,
+        )
+    }
+
+    private fun formatBitrate(bps: Long): String {
+        return when {
+            bps >= 1_000_000 -> String.format(Locale.US, "%.2f Mbps", bps / 1_000_000.0)
+            bps >= 1_000 -> String.format(Locale.US, "%.0f kbps", bps / 1_000.0)
+            else -> "$bps bps"
+        }
     }
 
     /**

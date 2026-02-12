@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.google.android.exoplayer2.ui.SubtitleView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,12 @@ class VideoOverlayManager(
     private var progressUpdateJob: Job? = null
     private val progressUpdateIntervalMs = 250L
 
+    // Debug info
+    private var debugInfoView: TextView? = null
+    private var debugContainerView: View? = null
+    private var debugInfoVisible = false
+    private var debugUpdateCounter = 0
+
     /**
      * Event channel for receiving events from JavaScript bridge.
      */
@@ -101,6 +108,7 @@ class VideoOverlayManager(
             is VideoProxyEvent.SetAudioTrack -> setAudioTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.SetSubtitleTrack -> setSubtitleTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.DisableSubtitleTrack -> disableSubtitleTrack(event.videoId)
+            is VideoProxyEvent.ToggleDebugInfo -> toggleDebugInfo()
         }
     }
 
@@ -110,7 +118,30 @@ class VideoOverlayManager(
      * so we can safely create views directly without mainHandler.post.
      */
     private fun createVideoOverlay(videoId: String) {
-        Timber.d("Creating video overlay for $videoId")
+        Timber.d("Creating video overlay for $videoId (existing players: ${players.size})")
+
+        // If a player already exists for this video ID, clean it up first
+        players.remove(videoId)?.let { oldPlayer ->
+            Timber.d("Releasing existing player for $videoId before re-creating")
+            oldPlayer.release()
+        }
+        textureViews.remove(videoId)?.let { oldTexture ->
+            (oldTexture.parent as? ViewGroup)?.removeView(oldTexture)
+        }
+        subtitleViews.remove(videoId)?.let { oldSubtitle ->
+            (oldSubtitle.parent as? ViewGroup)?.removeView(oldSubtitle)
+        }
+
+        // Clean up stale players that have no source (idle video elements that were
+        // created but never used). This prevents accumulation of unused ExoPlayer instances.
+        val staleIds = players.entries
+            .filter { (id, _) -> id != videoId }
+            .filter { (_, player) -> player.currentState.readyState == 0 && player.getDuration() == 0L }
+            .map { it.key }
+        for (staleId in staleIds) {
+            Timber.d("Cleaning up stale player: $staleId")
+            destroyVideoOverlay(staleId)
+        }
         
         // Create player
         val player = VideoProxyPlayer(
@@ -181,6 +212,11 @@ class VideoOverlayManager(
         }
         subtitleViews.remove(videoId)?.let { subtitleView ->
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
+        }
+
+        // Auto-hide debug info when all players are destroyed (playback ended)
+        if (players.isEmpty()) {
+            hideDebugInfo()
         }
     }
 
@@ -440,6 +476,7 @@ class VideoOverlayManager(
 
     /**
      * Start periodic progress updates.
+     * Also handles debug info updates when visible (every ~500ms via counter).
      */
     private fun startProgressUpdates() {
         progressUpdateJob?.cancel()
@@ -448,10 +485,156 @@ class VideoOverlayManager(
                 players.values.forEach { player ->
                     player.updateProgress()
                 }
+                // Update debug info every ~500ms (every 2nd progress tick at 250ms interval)
+                if (debugInfoVisible) {
+                    debugUpdateCounter++
+                    if (debugUpdateCounter >= 2) {
+                        debugUpdateCounter = 0
+                        try {
+                            updateDebugInfo()
+                        } catch (e: Exception) {
+                            Timber.e(e, "Error updating debug info")
+                        }
+                    }
+                }
                 kotlinx.coroutines.delay(progressUpdateIntervalMs)
             }
         }
     }
+
+    /**
+     * Set the debug info TextView and its outer container (for visibility control).
+     */
+    fun setDebugInfoView(textView: TextView, container: View) {
+        debugInfoView = textView
+        debugContainerView = container
+    }
+
+    /**
+     * Toggle the debug info overlay visibility.
+     * Debug updates are driven by the existing progress update loop,
+     * so no separate coroutine is needed.
+     * @return true if the debug info is now visible, false otherwise.
+     */
+    fun toggleDebugInfo(): Boolean {
+        debugInfoVisible = !debugInfoVisible
+        debugUpdateCounter = 0
+        if (debugInfoVisible) {
+            debugContainerView?.visibility = View.VISIBLE
+            // Force an immediate update so user sees info right away
+            try {
+                updateDebugInfo()
+            } catch (e: Exception) {
+                Timber.e(e, "Error during initial debug info update")
+            }
+        } else {
+            debugContainerView?.visibility = View.GONE
+        }
+        Timber.d("Debug info toggled: visible=$debugInfoVisible")
+        return debugInfoVisible
+    }
+
+    /**
+     * Hide the debug info overlay (called from close button).
+     */
+    fun hideDebugInfo() {
+        if (debugInfoVisible) {
+            debugInfoVisible = false
+            debugContainerView?.visibility = View.GONE
+            Timber.d("Debug info hidden")
+        }
+    }
+
+    /**
+     * Update the debug info text view with current ExoPlayer stats.
+     * Called from the progress update loop on the main thread.
+     */
+    private fun updateDebugInfo() {
+        val view = debugInfoView ?: return
+
+        val playerEntries = players.entries.toList()
+        if (playerEntries.isEmpty()) {
+            view.text = buildString {
+                appendLine("ExoPlayer Video Proxy Debug")
+                appendLine("═══════════════════════════")
+                append("Players: 0 (no video element created)")
+            }
+            return
+        }
+
+        // Find the best player to show details for:
+        // prefer one that is actively proxying (has source), then any
+        val allInfos = playerEntries.map { (id, player) -> id to player.getDebugInfo() }
+        val activeInfo = allInfos.firstOrNull { it.second.isProxying }
+            ?: allInfos.first()
+
+        val info = activeInfo.second
+        val posStr = formatTime(info.currentPosition)
+        val durStr = formatTime(info.duration)
+        val bufStr = formatTime(info.bufferPosition)
+
+        // Truncate source URL for display
+        val sourceDisplay = when {
+            info.sourceUrl.isEmpty() -> "(none - not proxied)"
+            info.sourceUrl.length > 60 -> "...${info.sourceUrl.takeLast(57)}"
+            else -> info.sourceUrl
+        }
+
+        view.text = buildString {
+            appendLine("ExoPlayer Video Proxy Debug")
+            appendLine("═══════════════════════════")
+            appendLine("Players: ${playerEntries.size}")
+            // Show brief status of all players
+            allInfos.forEach { (id, pi) ->
+                val marker = if (id == activeInfo.first) "▸" else " "
+                appendLine("$marker $id: ${pi.playbackState} exo=${pi.hasExoPlayer} src=${pi.isProxying}")
+            }
+            appendLine("═══════════════════════════")
+            appendLine("Active: ${info.videoId}")
+            appendLine("State: ${info.playbackState}")
+            appendLine("ExoPlayer: ${if (info.hasExoPlayer) "initialized" else "NULL"}")
+            appendLine("Source: $sourceDisplay")
+            appendLine("─── Video ───")
+            appendLine("Decoder: ${info.videoDecoderName}")
+            appendLine("HW Accel: ${if (info.isHardwareDecoding) "Yes" else "No"}")
+            appendLine("Format: ${info.videoFormat}")
+            appendLine("Resolution: ${info.resolution}")
+            appendLine("Frame Rate: ${info.frameRate}")
+            appendLine("Bitrate: ${info.videoBitrate}")
+            appendLine("Surface: ${info.surfaceSize}")
+            appendLine("Frames: ${info.renderedFrames} rendered, ${info.droppedFrames} dropped")
+            appendLine("─── Audio ───")
+            appendLine("Decoder: ${info.audioDecoderName}")
+            appendLine("Format: ${info.audioFormat}")
+            appendLine("Bitrate: ${info.audioBitrate}")
+            appendLine("Volume: ${String.format("%.0f%%", info.volume * 100)}")
+            appendLine("─── Playback ───")
+            appendLine("Position: $posStr / $durStr")
+            appendLine("Buffered: $bufStr")
+            append("Speed: ${info.playbackSpeed}x")
+        }
+    }
+
+    /**
+     * Format milliseconds to HH:MM:SS or MM:SS.
+     */
+    private fun formatTime(ms: Long): String {
+        if (ms <= 0) return "00:00"
+        val totalSeconds = ms / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%02d:%02d", minutes, seconds)
+        }
+    }
+
+    /**
+     * Check if there are any active players (for showing/hiding debug toggle).
+     */
+    fun hasActivePlayers(): Boolean = players.isNotEmpty()
 
     /**
      * Clean up all resources.
@@ -482,6 +665,9 @@ class VideoOverlayManager(
         videoVisibility.clear()
         overlayContainer = null
         webView = null
+        debugInfoView = null
+        debugContainerView = null
+        debugInfoVisible = false
     }
 
     /**

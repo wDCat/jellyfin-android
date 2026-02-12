@@ -51,4 +51,54 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="invisible" />
+
+    <!-- Video proxy debug info overlay - on top of WebView -->
+    <FrameLayout
+        android:id="@+id/video_proxy_debug_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|top"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="48dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="48dp"
+        android:background="@drawable/playback_info_background"
+        android:maxWidth="400dp"
+        android:visibility="gone">
+
+        <ScrollView
+            android:id="@+id/video_proxy_debug_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fadeScrollbars="false"
+            android:scrollbarStyle="insideOverlay"
+            android:scrollbars="vertical">
+
+            <androidx.appcompat.widget.AppCompatTextView
+                android:id="@+id/video_proxy_debug_info"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:paddingStart="10dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="36dp"
+                android:paddingBottom="10dp"
+                android:textColor="@android:color/white"
+                android:textSize="11sp" />
+        </ScrollView>
+
+        <!-- Close button in top-right corner -->
+        <ImageButton
+            android:id="@+id/video_proxy_debug_close"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="end|top"
+            android:layout_margin="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@android:string/cancel"
+            android:padding="6dp"
+            android:scaleType="centerInside"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            app:tint="@android:color/white" />
+    </FrameLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
