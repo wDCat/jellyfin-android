@@ -145,6 +145,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, webView)
                 manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)
+                manager.setBitrateIndicatorView(binding.videoProxyBitrateIndicator)
                 binding.videoProxyDebugClose.setOnClickListener {
                     manager.hideDebugInfo()
                 }

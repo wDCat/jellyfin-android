@@ -64,6 +64,10 @@ class VideoOverlayManager(
     private var debugInfoVisible = false
     private var debugUpdateCounter = 0
 
+    // Bitrate indicator (top-right corner, shown during buffering)
+    private var bitrateIndicatorView: TextView? = null
+    private var bitrateIndicatorVisible = false
+
     /**
      * Event channel for receiving events from JavaScript bridge.
      */
@@ -424,6 +428,7 @@ class VideoOverlayManager(
 
     override fun onBuffering(videoId: String, isBuffering: Boolean) {
         callJavaScript("VideoProxyCallback.onBuffering('$videoId', $isBuffering)")
+        updateBitrateIndicator(videoId, isBuffering)
     }
 
     override fun onError(videoId: String, errorCode: Int, errorMessage: String) {
@@ -475,6 +480,83 @@ class VideoOverlayManager(
     }
 
     /**
+     * Set the bitrate indicator TextView (for buffering bitrate display in top-right corner).
+     */
+    fun setBitrateIndicatorView(textView: TextView) {
+        bitrateIndicatorView = textView
+    }
+
+    /**
+     * Update the bitrate indicator when buffering state changes.
+     * Shows estimated network bandwidth and video format bitrate in the top-right corner.
+     */
+    private fun updateBitrateIndicator(videoId: String, isBuffering: Boolean) {
+        val indicator = bitrateIndicatorView ?: return
+
+        if (isBuffering) {
+            bitrateIndicatorVisible = true
+            val player = players[videoId]
+            if (player != null) {
+                val bandwidthBps = player.getNetworkBandwidthEstimate()
+                val videoBitrateBps = player.getVideoFormatBitrate()
+                val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
+                val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
+                indicator.text = buildString {
+                    append("⏳ ")
+                    append(bandwidthStr)
+                    if (videoBitrateBps > 0) {
+                        append(" / ")
+                        append(videoBitrateStr)
+                    }
+                }
+            } else {
+                indicator.text = "⏳ ..."
+            }
+            indicator.visibility = View.VISIBLE
+        } else {
+            bitrateIndicatorVisible = false
+            indicator.visibility = View.GONE
+        }
+    }
+
+    /**
+     * Refresh the bitrate indicator with updated bandwidth estimate.
+     * Called periodically from the progress update loop while buffering.
+     */
+    private fun refreshBitrateIndicator() {
+        val indicator = bitrateIndicatorView ?: return
+        // Find the actively buffering player
+        val activePlayer = players.values.firstOrNull { player ->
+            player.currentState.readyState == 2 // STATE_BUFFERING maps to readyState 2
+        } ?: players.values.firstOrNull { it.currentState.readyState > 0 }
+        ?: return
+
+        val bandwidthBps = activePlayer.getNetworkBandwidthEstimate()
+        val videoBitrateBps = activePlayer.getVideoFormatBitrate()
+        val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
+        val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
+        indicator.text = buildString {
+            append("⏳ ")
+            append(bandwidthStr)
+            if (videoBitrateBps > 0) {
+                append(" / ")
+                append(videoBitrateStr)
+            }
+        }
+    }
+
+    /**
+     * Format bitrate for display (bps -> human readable).
+     */
+    private fun formatBitrateDisplay(bps: Long): String {
+        return when {
+            bps >= 1_000_000 -> String.format(java.util.Locale.US, "%.1f Mbps", bps / 1_000_000.0)
+            bps >= 1_000 -> String.format(java.util.Locale.US, "%.0f kbps", bps / 1_000.0)
+            else -> "$bps bps"
+        }
+    }
+
+    /**
      * Start periodic progress updates.
      * Also handles debug info updates when visible (every ~500ms via counter).
      */
@@ -485,15 +567,23 @@ class VideoOverlayManager(
                 players.values.forEach { player ->
                     player.updateProgress()
                 }
-                // Update debug info every ~500ms (every 2nd progress tick at 250ms interval)
-                if (debugInfoVisible) {
-                    debugUpdateCounter++
-                    if (debugUpdateCounter >= 2) {
-                        debugUpdateCounter = 0
+                // Update debug info and bitrate indicator every ~500ms (every 2nd progress tick at 250ms interval)
+                debugUpdateCounter++
+                if (debugUpdateCounter >= 2) {
+                    debugUpdateCounter = 0
+                    if (debugInfoVisible) {
                         try {
                             updateDebugInfo()
                         } catch (e: Exception) {
                             Timber.e(e, "Error updating debug info")
+                        }
+                    }
+                    // Refresh bitrate indicator while buffering to show live bandwidth estimate
+                    if (bitrateIndicatorVisible) {
+                        try {
+                            refreshBitrateIndicator()
+                        } catch (e: Exception) {
+                            Timber.e(e, "Error refreshing bitrate indicator")
                         }
                     }
                 }
@@ -608,6 +698,8 @@ class VideoOverlayManager(
             appendLine("Format: ${info.audioFormat}")
             appendLine("Bitrate: ${info.audioBitrate}")
             appendLine("Volume: ${String.format("%.0f%%", info.volume * 100)}")
+            appendLine("─── Network ───")
+            appendLine("Bandwidth: ${info.networkBandwidth}")
             appendLine("─── Playback ───")
             appendLine("Position: $posStr / $durStr")
             appendLine("Buffered: $bufStr")
@@ -668,6 +760,8 @@ class VideoOverlayManager(
         debugInfoView = null
         debugContainerView = null
         debugInfoVisible = false
+        bitrateIndicatorView = null
+        bitrateIndicatorVisible = false
     }
 
     /**

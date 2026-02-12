@@ -18,6 +18,7 @@ import com.google.android.exoplayer2.mediacodec.MediaCodecSelector
 import com.google.android.exoplayer2.text.CueGroup
 import com.google.android.exoplayer2.trackselection.TrackSelectionOverride
 import com.google.android.exoplayer2.ui.SubtitleView
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter
 import com.google.android.exoplayer2.util.MimeTypes
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import timber.log.Timber
@@ -84,6 +85,8 @@ data class VideoProxyDebugInfo(
     val volume: Float = 1f,
     val isHardwareDecoding: Boolean = false,
     val surfaceSize: String = "N/A",
+    val networkBandwidth: String = "N/A",
+    val networkBandwidthBps: Long = 0,
 )
 
 /**
@@ -408,6 +411,14 @@ class VideoProxyPlayer(
 
         val surfaceSizeStr = textureView?.let { "${it.width}x${it.height}" } ?: "N/A"
 
+        val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(context)
+        val bandwidthEstimateBps = bandwidthMeter.bitrateEstimate
+        val bandwidthStr = if (bandwidthEstimateBps > 0) {
+            formatBitrate(bandwidthEstimateBps)
+        } else {
+            "N/A"
+        }
+
         val isHw = videoDecoderName.contains("c2.", ignoreCase = true) ||
             videoDecoderName.contains("OMX.", ignoreCase = true) ||
             (!videoDecoderName.contains("ffmpeg", ignoreCase = true) &&
@@ -438,7 +449,24 @@ class VideoProxyPlayer(
             volume = player.volume,
             isHardwareDecoding = isHw,
             surfaceSize = surfaceSizeStr,
+            networkBandwidth = bandwidthStr,
+            networkBandwidthBps = bandwidthEstimateBps,
         )
+    }
+
+    /**
+     * Get the current network bandwidth estimate in bits per second.
+     * Uses ExoPlayer's default bandwidth meter.
+     */
+    fun getNetworkBandwidthEstimate(): Long {
+        return DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
+    }
+
+    /**
+     * Get the current video format bitrate in bits per second, or 0 if unavailable.
+     */
+    fun getVideoFormatBitrate(): Long {
+        return player?.videoFormat?.bitrate?.toLong()?.takeIf { it > 0 } ?: 0L
     }
 
     private fun formatBitrate(bps: Long): String {
