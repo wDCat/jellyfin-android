@@ -908,22 +908,20 @@
 
         /**
          * Close the currently open actionSheet / dialog.
+         * Jellyfin web uses history-based dialog management: opening a dialog
+         * pushes a history state, so history.back() reliably closes it.
          */
         function closeCurrentMenu() {
-            // Try clicking the backdrop to close
-            const backdrop = document.querySelector('.actionSheetBackdrop, .dialogBackdrop, .dialog-backdrop');
-            if (backdrop) {
-                backdrop.click();
-                return;
+            try {
+                history.back();
+            } catch (e) {
+                // Fallback: dispatch Escape key
+                document.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Escape',
+                    bubbles: true,
+                    cancelable: true,
+                }));
             }
-            // Try the dialog close button
-            const closeBtn = document.querySelector('.actionSheet .btnCloseActionSheet, .dialog .btnCancel');
-            if (closeBtn) {
-                closeBtn.click();
-                return;
-            }
-            // Dispatch Escape key as last resort
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         }
 
         /**
@@ -962,9 +960,36 @@
 
             if (!isPlayerMenu) return;
 
-            // Add debug menu item
+            // Add debug menu item at the end of the menu
             const menuItem = createMenuItem(itemsContainer);
             itemsContainer.appendChild(menuItem);
+
+            // Expand the scroller's max-height to accommodate the injected item
+            // and shift the entire menu up if it overflows the viewport bottom.
+            requestAnimationFrame(() => {
+                const itemHeight = menuItem.offsetHeight;
+                if (!itemHeight) return;
+
+                // 1. Expand scroller so the new item is scrollable / visible
+                const scroller = container.querySelector('.actionSheetScroller') || itemsContainer;
+                const scrollerStyle = window.getComputedStyle(scroller);
+                const currentMax = parseInt(scrollerStyle.maxHeight, 10);
+                if (currentMax && !isNaN(currentMax)) {
+                    scroller.style.maxHeight = (currentMax + itemHeight) + 'px';
+                }
+
+                // 2. If the menu now overflows below the viewport, shift it up
+                const sheet = container.closest('.actionSheet') || container;
+                const rect = sheet.getBoundingClientRect();
+                const bottomOverflow = rect.bottom - window.innerHeight;
+                if (bottomOverflow > 0) {
+                    const padding = 8; // keep some breathing room from screen edge
+                    const sheetStyle = window.getComputedStyle(sheet);
+                    // Prefer adjusting margin-top (works for both fixed and absolute positioning)
+                    const currentMargin = parseInt(sheetStyle.marginTop, 10) || 0;
+                    sheet.style.marginTop = (currentMargin - bottomOverflow - padding - 20) + 'px';
+                }
+            });
 
             console.log('[VideoProxy] Debug menu item injected into settings menu');
         }
