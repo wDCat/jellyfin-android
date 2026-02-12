@@ -1,6 +1,7 @@
 package org.jellyfin.mobile.player.videoproxy
 
 import android.content.Context
+import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -53,6 +54,10 @@ class VideoOverlayManager(
     
     // Video ID -> Visibility state
     private val videoVisibility = ConcurrentHashMap<String, Boolean>()
+
+    // Video ID -> Native video size (for aspect ratio correction)
+    private data class VideoNativeSize(val width: Int, val height: Int, val pixelWidthHeightRatio: Float)
+    private val videoNativeSizes = ConcurrentHashMap<String, VideoNativeSize>()
 
     // Progress update job
     private var progressUpdateJob: Job? = null
@@ -210,6 +215,7 @@ class VideoOverlayManager(
         players.remove(videoId)?.release()
         videoBounds.remove(videoId)
         videoVisibility.remove(videoId)
+        videoNativeSizes.remove(videoId)
 
         textureViews.remove(videoId)?.let { textureView ->
             (textureView.parent as? ViewGroup)?.removeView(textureView)
@@ -284,6 +290,9 @@ class VideoOverlayManager(
 
         textureViews[videoId]?.let { applyBoundsToTextureView(it, bounds) }
         subtitleViews[videoId]?.let { applyBoundsToSubtitleView(it, bounds) }
+
+        // Reapply aspect ratio transform after bounds change
+        reapplyAspectRatioTransform(videoId)
     }
 
     /**
@@ -383,6 +392,9 @@ class VideoOverlayManager(
                 subtitleView?.let { applyBoundsToSubtitleView(it, bounds) }
             }
         }
+
+        // Reapply aspect ratio transform after layout change
+        reapplyAspectRatioTransform(videoId)
     }
 
     /**
@@ -410,6 +422,63 @@ class VideoOverlayManager(
     }
 
     // VideoProxyPlayerCallback implementation
+
+    override fun onVideoSizeChanged(videoId: String, width: Int, height: Int, pixelWidthHeightRatio: Float) {
+        Timber.d("Video size changed for $videoId: ${width}x${height} pixelRatio=$pixelWidthHeightRatio")
+        val size = VideoNativeSize(width, height, pixelWidthHeightRatio)
+        videoNativeSizes[videoId] = size
+
+        // Apply aspect ratio transform to the TextureView
+        textureViews[videoId]?.let { textureView ->
+            textureView.post {
+                applyAspectRatioTransform(textureView, size)
+            }
+        }
+
+        // Notify JavaScript about video intrinsic dimensions
+        callJavaScript("VideoProxyCallback.onVideoSizeChanged('$videoId', $width, $height, $pixelWidthHeightRatio)")
+    }
+
+    /**
+     * Apply a matrix transform to the TextureView to maintain the video's
+     * aspect ratio (FIT_CENTER behavior). TextureView by default stretches
+     * its content to fill the view, which crops/distorts the video when the
+     * aspect ratios don't match. This transform corrects that.
+     */
+    private fun applyAspectRatioTransform(textureView: TextureView, size: VideoNativeSize) {
+        val viewWidth = textureView.width.toFloat()
+        val viewHeight = textureView.height.toFloat()
+
+        if (viewWidth <= 0f || viewHeight <= 0f || size.width <= 0 || size.height <= 0) return
+
+        val videoAspect = (size.width * size.pixelWidthHeightRatio) / size.height
+        val viewAspect = viewWidth / viewHeight
+
+        val matrix = Matrix()
+
+        if (videoAspect > viewAspect) {
+            // Video is wider than view: fit by width, letterbox (bars top/bottom)
+            val scaleY = viewAspect / videoAspect
+            matrix.setScale(1f, scaleY, viewWidth / 2f, viewHeight / 2f)
+        } else {
+            // Video is taller than view: fit by height, pillarbox (bars left/right)
+            val scaleX = videoAspect / viewAspect
+            matrix.setScale(scaleX, 1f, viewWidth / 2f, viewHeight / 2f)
+        }
+
+        textureView.setTransform(matrix)
+        Timber.d("Applied aspect ratio transform: video=${size.width}x${size.height} view=${viewWidth}x${viewHeight}")
+    }
+
+    /**
+     * Reapply the aspect ratio transform for a video, if native size is known.
+     * Should be called after any bounds/layout change.
+     */
+    private fun reapplyAspectRatioTransform(videoId: String) {
+        val textureView = textureViews[videoId] ?: return
+        val size = videoNativeSizes[videoId] ?: return
+        textureView.post { applyAspectRatioTransform(textureView, size) }
+    }
 
     override fun onStateChanged(videoId: String, state: VideoProxyPlayerState) {
         // Notify JavaScript about state change
@@ -755,6 +824,7 @@ class VideoOverlayManager(
 
         videoBounds.clear()
         videoVisibility.clear()
+        videoNativeSizes.clear()
         overlayContainer = null
         webView = null
         debugInfoView = null

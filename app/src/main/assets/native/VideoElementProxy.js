@@ -251,6 +251,10 @@
             this._bounds = { x: 0, y: 0, width: 0, height: 0 };
             this._visible = true;
             this._fullscreen = false;
+
+            // Native video intrinsic dimensions (from ExoPlayer)
+            this._nativeVideoWidth = 0;
+            this._nativeVideoHeight = 0;
             
             // Saved ancestor styles for transparency restoration
             this._savedStyles = [];
@@ -520,12 +524,12 @@
                 set(value) { state._readyState = value; }
             },
 
-            // Video dimensions
+            // Video dimensions (intrinsic video size from ExoPlayer)
             videoWidth: {
-                get() { return state._bounds.width; }
+                get() { return state._nativeVideoWidth || state._bounds.width; }
             },
             videoHeight: {
-                get() { return state._bounds.height; }
+                get() { return state._nativeVideoHeight || state._bounds.height; }
             },
 
             // Buffered (stub)
@@ -786,6 +790,25 @@
 
             proxyState._fullscreen = isFullscreen;
             document.dispatchEvent(new Event('fullscreenchange'));
+        },
+
+        /**
+         * Called when the native video size changes (from ExoPlayer).
+         * Updates the proxied videoWidth and videoHeight properties.
+         * @param {string} videoId - The video element ID
+         * @param {number} width - Video intrinsic width in pixels
+         * @param {number} height - Video intrinsic height in pixels
+         * @param {number} pixelWidthHeightRatio - Pixel aspect ratio
+         */
+        onVideoSizeChanged(videoId, width, height, pixelWidthHeightRatio) {
+            const proxyState = proxiedVideos.get(videoId);
+            if (!proxyState) return;
+
+            // Apply pixel aspect ratio to get display width
+            proxyState._nativeVideoWidth = Math.round(width * (pixelWidthHeightRatio || 1));
+            proxyState._nativeVideoHeight = height;
+            proxyState.dispatchEvent('resize');
+            console.log(`[VideoProxy] Video size for ${videoId}: ${proxyState._nativeVideoWidth}x${proxyState._nativeVideoHeight}`);
         },
 
         /**

@@ -19,6 +19,7 @@ import com.google.android.exoplayer2.text.CueGroup
 import com.google.android.exoplayer2.trackselection.TrackSelectionOverride
 import com.google.android.exoplayer2.ui.SubtitleView
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter
+import com.google.android.exoplayer2.video.VideoSize
 import com.google.android.exoplayer2.util.MimeTypes
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import timber.log.Timber
@@ -32,6 +33,7 @@ interface VideoProxyPlayerCallback {
     fun onBuffering(videoId: String, isBuffering: Boolean)
     fun onError(videoId: String, errorCode: Int, errorMessage: String)
     fun onTracksChanged(videoId: String, audioTracks: List<ProxyTrackInfo>, subtitleTracks: List<ProxyTrackInfo>)
+    fun onVideoSizeChanged(videoId: String, width: Int, height: Int, pixelWidthHeightRatio: Float)
 }
 
 /**
@@ -579,6 +581,11 @@ class VideoProxyPlayer(
     @Suppress("DEPRECATION")
     override fun onCues(cueGroup: CueGroup) {
         subtitleView?.setCues(cueGroup.cues)
+    }
+
+    override fun onVideoSizeChanged(videoSize: VideoSize) {
+        Timber.d("Video size changed for $videoId: ${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
+        callback.onVideoSizeChanged(videoId, videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
     }
 
     /**
