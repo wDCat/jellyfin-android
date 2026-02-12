@@ -23,6 +23,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
+        applicationId = "org.jellyfin.mobile.custom"
         minSdk = 21
         targetSdk = 34
         versionName = project.getVersionName()
