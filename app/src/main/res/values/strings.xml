@@ -101,6 +101,10 @@
     <string name="pref_exoplayer_allow_background_audio_summary">Allow playing videos in the background with audio-only</string>
     <string name="pref_exoplayer_direct_play_ass">Allow SSA/ASS subtitles in direct play</string>
     <string name="pref_exoplayer_direct_play_ass_summary">Prevent transcoding and show subtitles with basic styling only. Advanced subtitle styling will not be available if enabled.</string>
+    <string name="pref_video_proxy_enabled_title">Enhanced video decoding</string>
+    <string name="pref_video_proxy_enabled_summary">Use ExoPlayer as the underlying video decoder for web player, providing better format support while keeping web UI controls</string>
+    <string name="pref_video_proxy_hardware_decoding_title">Prefer hardware decoding</string>
+    <string name="pref_video_proxy_hardware_decoding_summary">Use hardware decoder when available, fall back to software decoder (FFmpeg) when disabled or unavailable</string>
 
     <string name="external_player_app">External player app</string>
     <string name="external_player_mpv">MPV Player</string>

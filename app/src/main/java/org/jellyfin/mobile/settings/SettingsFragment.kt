@@ -44,6 +44,8 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     private lateinit var backgroundAudioPreference: Preference
     private lateinit var directPlayAssPreference: Preference
     private lateinit var externalPlayerChoicePreference: Preference
+    private lateinit var videoProxyEnabledPreference: CheckBoxPreference
+    private lateinit var videoProxyHardwareDecodingPreference: CheckBoxPreference
 
     init {
         Preference.Config.titleMaxLines = 2
@@ -108,6 +110,8 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
                 backgroundAudioPreference.enabled = selection == VideoPlayerType.EXO_PLAYER
                 directPlayAssPreference.enabled = selection == VideoPlayerType.EXO_PLAYER
                 externalPlayerChoicePreference.enabled = selection == VideoPlayerType.EXTERNAL_PLAYER
+                videoProxyEnabledPreference.enabled = selection == VideoPlayerType.WEB_PLAYER
+                videoProxyHardwareDecodingPreference.enabled = selection == VideoPlayerType.WEB_PLAYER && videoProxyEnabledPreference.checked
             }
         }
         startLandscapeVideoInLandscapePreference = checkBox(Constants.PREF_EXOPLAYER_START_LANDSCAPE_VIDEO_IN_LANDSCAPE) {
@@ -138,6 +142,20 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
             titleRes = R.string.pref_exoplayer_direct_play_ass
             summaryRes = R.string.pref_exoplayer_direct_play_ass_summary
             enabled = appPreferences.videoPlayerType == VideoPlayerType.EXO_PLAYER
+        }
+        videoProxyEnabledPreference = checkBox(Constants.PREF_VIDEO_PROXY_ENABLED) {
+            titleRes = R.string.pref_video_proxy_enabled_title
+            summaryRes = R.string.pref_video_proxy_enabled_summary
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER
+            defaultOnCheckedChange { checked ->
+                videoProxyHardwareDecodingPreference.enabled = checked
+            }
+        }
+        videoProxyHardwareDecodingPreference = checkBox(Constants.PREF_VIDEO_PROXY_HARDWARE_DECODING) {
+            titleRes = R.string.pref_video_proxy_hardware_decoding_title
+            summaryRes = R.string.pref_video_proxy_hardware_decoding_summary
+            defaultValue = true
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
         }
 
         // Generate available external player options

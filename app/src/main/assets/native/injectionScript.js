@@ -1,4 +1,12 @@
 (() => {
+    // Load VideoElementProxy first (needs to intercept video element creation early)
+    if (window.VideoProxyBridge && window.VideoProxyBridge.isEnabled()) {
+        const proxyScript = document.createElement('script');
+        proxyScript.src = '/native/VideoElementProxy.js';
+        proxyScript.charset = 'utf-8';
+        document.head.appendChild(proxyScript);
+    }
+
     const scripts = [
         '/native/nativeshell.js',
         '/native/EventEmitter.js',

@@ -24,6 +24,8 @@ import org.chromium.net.CronetProvider
 import org.jellyfin.mobile.MainViewModel
 import org.jellyfin.mobile.bridge.NativePlayer
 import org.jellyfin.mobile.events.ActivityEventHandler
+import org.jellyfin.mobile.player.videoproxy.VideoProxyBridge
+import org.jellyfin.mobile.player.videoproxy.VideoProxyEvent
 import org.jellyfin.mobile.player.audio.car.LibraryBrowser
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
 import org.jellyfin.mobile.player.interaction.PlayerEvent
@@ -47,6 +49,7 @@ import org.koin.dsl.module
 import java.util.concurrent.Executors
 
 const val PLAYER_EVENT_CHANNEL = "PlayerEventChannel"
+const val VIDEO_PROXY_EVENT_CHANNEL = "VideoProxyEventChannel"
 private const val HTTP_CACHE_SIZE: Long = 16 * 1024 * 1024
 private const val TS_SEARCH_PACKETS = 1800
 
@@ -57,6 +60,7 @@ val applicationModule = module {
     single { PermissionRequestHelper() }
     single { RemoteVolumeProvider(get()) }
     single(named(PLAYER_EVENT_CHANNEL)) { Channel<PlayerEvent>() }
+    single(named(VIDEO_PROXY_EVENT_CHANNEL)) { Channel<VideoProxyEvent>(Channel.UNLIMITED) }
 
     // Controllers
     single { ApiClientController(get(), get(), get(), get(), get()) }
@@ -67,6 +71,7 @@ val applicationModule = module {
 
     // Bridge interfaces
     single { NativePlayer(get(), get(), get(named(PLAYER_EVENT_CHANNEL))) }
+    single { VideoProxyBridge(get(), get(named(VIDEO_PROXY_EVENT_CHANNEL))) }
 
     // ViewModels
     viewModel { MainViewModel(get(), get()) }
