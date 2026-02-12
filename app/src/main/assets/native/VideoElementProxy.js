@@ -20,6 +20,141 @@
     const proxiedVideos = new Map();
     let videoIdCounter = 0;
 
+    // ── HLS URL interception ──────────────────────────────────────────
+    // hls.js uses MSE (MediaSource API), which creates blob: URLs that
+    // ExoPlayer cannot handle.  We intercept at two points:
+    //   1. URL.createObjectURL  – to map  blob:URL → MediaSource instance
+    //   2. Hls.prototype.loadSource / attachMedia – to map MediaSource → real .m3u8 URL
+    // When a blob: URL is later set on video.src, we resolve the real HLS
+    // URL and pass it to ExoPlayer (which has native HLS support).
+
+    /** blob:URL → real media URL  (e.g. .m3u8)  */
+    const blobToRealUrl = new Map();
+
+    /** MediaSource instance → real media URL */
+    const mediaSourceToUrl = new Map();
+
+    /** MediaSource instance → HTMLVideoElement */
+    const mediaSourceToVideo = new Map();
+
+    // (1) Hook URL.createObjectURL so we can track blob ↔ MediaSource
+    const _origCreateObjectURL = URL.createObjectURL;
+    URL.createObjectURL = function(obj) {
+        const blobUrl = _origCreateObjectURL.call(URL, obj);
+        if (typeof MediaSource !== 'undefined' && obj instanceof MediaSource) {
+            // Check if we already know the real URL for this MediaSource
+            const realUrl = mediaSourceToUrl.get(obj);
+            if (realUrl) {
+                blobToRealUrl.set(blobUrl, realUrl);
+                console.log('[VideoProxy] Mapped blob URL to real URL:', realUrl);
+            } else {
+                // Store a placeholder; we'll fill it in when loadSource is called
+                blobToRealUrl.set(blobUrl, null);
+            }
+            // If a real URL is attached later (loadSource after createObjectURL),
+            // update the mapping via a deferred check
+            const ms = obj;
+            const checkInterval = setInterval(() => {
+                const url = mediaSourceToUrl.get(ms);
+                if (url) {
+                    blobToRealUrl.set(blobUrl, url);
+                    clearInterval(checkInterval);
+                }
+            }, 50);
+            // Safety: stop checking after 10 seconds
+            setTimeout(() => clearInterval(checkInterval), 10000);
+        }
+        return blobUrl;
+    };
+
+    // Also hook revokeObjectURL to clean up our maps
+    const _origRevokeObjectURL = URL.revokeObjectURL;
+    URL.revokeObjectURL = function(url) {
+        blobToRealUrl.delete(url);
+        _origRevokeObjectURL.call(URL, url);
+    };
+
+    // (2) Hook Hls constructor to intercept loadSource / attachMedia.
+    //     hls.js may be loaded before or after this script, so we use
+    //     a property setter to catch it whenever it appears on `window`.
+    function hookHlsClass(HlsClass) {
+        if (HlsClass._videoProxyHooked) return HlsClass;
+        HlsClass._videoProxyHooked = true;
+
+        const origLoadSource = HlsClass.prototype.loadSource;
+        const origAttachMedia = HlsClass.prototype.attachMedia;
+
+        HlsClass.prototype.loadSource = function(src) {
+            console.log('[VideoProxy] hls.js loadSource intercepted:', src);
+            this._videoProxyRealUrl = src;
+            // If media is already attached, update the MediaSource mapping
+            if (this._videoProxyMediaSource) {
+                mediaSourceToUrl.set(this._videoProxyMediaSource, src);
+            }
+            return origLoadSource.call(this, src);
+        };
+
+        HlsClass.prototype.attachMedia = function(video) {
+            console.log('[VideoProxy] hls.js attachMedia intercepted');
+            this._videoProxyVideo = video;
+            // Capture the MediaSource after it's created by hls.js.
+            // hls.js sets video.src = URL.createObjectURL(mediaSource)
+            // inside attachMedia, so the MediaSource is created synchronously.
+            const result = origAttachMedia.call(this, video);
+
+            // After attachMedia, try to find the MediaSource via video.src
+            // Store association for later lookup
+            if (this._videoProxyRealUrl) {
+                // Look through all pending blob entries
+                for (const [blobUrl, realUrl] of blobToRealUrl.entries()) {
+                    if (!realUrl) {
+                        blobToRealUrl.set(blobUrl, this._videoProxyRealUrl);
+                        console.log('[VideoProxy] Resolved blob URL to:', this._videoProxyRealUrl);
+                        break;
+                    }
+                }
+            }
+
+            return result;
+        };
+
+        console.log('[VideoProxy] Hooked hls.js prototype methods');
+        return HlsClass;
+    }
+
+    // Hook Hls if it already exists
+    if (window.Hls) {
+        hookHlsClass(window.Hls);
+    }
+
+    // Watch for Hls being defined later (e.g. loaded async by Jellyfin Web)
+    let _hlsValue = window.Hls;
+    try {
+        Object.defineProperty(window, 'Hls', {
+            configurable: true,
+            get() { return _hlsValue; },
+            set(val) {
+                if (val && typeof val === 'function' && !val._videoProxyHooked) {
+                    _hlsValue = hookHlsClass(val);
+                } else {
+                    _hlsValue = val;
+                }
+            }
+        });
+    } catch (e) {
+        console.warn('[VideoProxy] Could not watch for Hls class:', e);
+    }
+
+    /**
+     * Resolve a blob: URL to its real media URL, if known.
+     * @param {string} url - The URL to resolve
+     * @returns {string|null} The real URL, or null if not a resolvable blob
+     */
+    function resolveRealUrl(url) {
+        if (!url || !url.startsWith('blob:')) return null;
+        return blobToRealUrl.get(url) || null;
+    }
+
     // Generate unique video ID
     function generateVideoId() {
         return 'video_proxy_' + (++videoIdCounter);
@@ -438,11 +573,55 @@
                 get() { return state._src; },
                 set(value) {
                     state._src = value;
-                    if (value && bridge.shouldProxyUrl(value)) {
+
+                    // Resolve the effective URL for proxy decision.
+                    // blob: URLs come from hls.js (MSE) – try to resolve to the
+                    // real .m3u8 URL so ExoPlayer can handle HLS natively.
+                    let effectiveUrl = value;
+                    if (value && value.startsWith('blob:')) {
+                        const realUrl = resolveRealUrl(value);
+                        if (realUrl) {
+                            console.log(`[VideoProxy] Resolved blob: to real URL: ${realUrl}`);
+                            effectiveUrl = realUrl;
+                        } else {
+                            // The real URL mapping may arrive slightly after video.src is set
+                            // (hls.js timing). Schedule a deferred retry.
+                            console.log('[VideoProxy] blob: URL not yet resolved, will retry...');
+                            effectiveUrl = null;
+                            const blobValue = value;
+                            const retryState = state;
+                            let retries = 0;
+                            const retryInterval = setInterval(() => {
+                                retries++;
+                                const resolved = resolveRealUrl(blobValue);
+                                if (resolved) {
+                                    clearInterval(retryInterval);
+                                    console.log(`[VideoProxy] Deferred resolve succeeded (attempt ${retries}): ${resolved}`);
+                                    if (retryState._src === blobValue && !retryState.isProxied && bridge.shouldProxyUrl(resolved)) {
+                                        retryState.ensureNativePlayer();
+                                        retryState.isProxied = true;
+                                        bridge.setSource(retryState.videoId, resolved);
+                                        retryState.makeTransparent();
+                                        retryState.startObserving();
+                                    }
+                                } else if (retries >= 40) { // 40 * 50ms = 2 seconds
+                                    clearInterval(retryInterval);
+                                    console.log('[VideoProxy] blob: URL resolve timed out, falling back to WebView playback');
+                                }
+                            }, 50);
+                        }
+                    }
+
+                    // data: URLs are also browser-internal and unsupported by ExoPlayer.
+                    if (effectiveUrl && effectiveUrl.startsWith('data:')) {
+                        effectiveUrl = null;
+                    }
+
+                    if (effectiveUrl && bridge.shouldProxyUrl(effectiveUrl)) {
                         // Lazily create the native ExoPlayer only when actually needed
                         state.ensureNativePlayer();
                         state.isProxied = true;
-                        bridge.setSource(state.videoId, value);
+                        bridge.setSource(state.videoId, effectiveUrl);
                         // Make the video element AND all ancestor containers transparent
                         // so the native TextureView below the WebView can show through.
                         // The OSD controls have their own styling, so they remain visible.
