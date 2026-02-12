@@ -30,10 +30,13 @@ import org.jellyfin.mobile.app.VIDEO_PROXY_EVENT_CHANNEL
 import org.jellyfin.mobile.bridge.ExternalPlayer
 import org.jellyfin.mobile.bridge.NativeInterface
 import org.jellyfin.mobile.bridge.NativePlayer
+import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
+import org.jellyfin.mobile.player.source.MediaSourceResolver
 import org.jellyfin.mobile.player.videoproxy.VideoOverlayManager
 import org.jellyfin.mobile.player.videoproxy.VideoProxyBridge
 import org.jellyfin.mobile.player.videoproxy.VideoProxyEvent
 import org.jellyfin.mobile.data.entity.ServerEntity
+import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.mobile.databinding.FragmentWebviewBinding
 import org.jellyfin.mobile.setup.ConnectFragment
 import org.jellyfin.mobile.utils.AndroidVersion
@@ -63,6 +66,9 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     private val nativePlayer: NativePlayer by inject()
     private val videoProxyBridge: VideoProxyBridge by inject()
     private val videoProxyEventChannel: Channel<VideoProxyEvent> by inject(named(VIDEO_PROXY_EVENT_CHANNEL))
+    private val mediaSourceResolver: MediaSourceResolver by inject()
+    private val apiClient: ApiClient by inject()
+    private val deviceProfileBuilder: DeviceProfileBuilder by inject()
     private lateinit var externalPlayer: ExternalPlayer
     private var videoOverlayManager: VideoOverlayManager? = null
 
@@ -142,6 +148,9 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 appPreferences = appPreferences,
                 webappFunctionChannel = webappFunctionChannel,
                 coroutineScope = lifecycleScope,
+                mediaSourceResolver = mediaSourceResolver,
+                apiClient = apiClient,
+                deviceProfileBuilder = deviceProfileBuilder,
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, webView)
                 manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)

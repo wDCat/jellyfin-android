@@ -198,6 +198,21 @@ class VideoProxyBridge(
     }
 
     /**
+     * Called when a blob: URL is detected and we need to resolve the real
+     * direct-play URL via the Jellyfin API (similar to ExternalPlayer).
+     * @param videoId Unique identifier for the video element
+     * @param itemId The Jellyfin item ID (UUID string)
+     * @param mediaSourceId The media source ID (may be empty)
+     */
+    @JavascriptInterface
+    fun resolveAndSetSource(videoId: String, itemId: String, mediaSourceId: String) {
+        Timber.d("Resolve and set source for $videoId: itemId=$itemId, mediaSourceId=$mediaSourceId")
+        videoProxyEventChannel.trySend(
+            VideoProxyEvent.ResolveAndSetSource(videoId, itemId, mediaSourceId),
+        )
+    }
+
+    /**
      * Check if a URL should be handled by the proxy (Direct Play only).
      * @param url The video URL to check
      * @return true if the URL should be proxied, false otherwise
@@ -257,5 +272,6 @@ sealed class VideoProxyEvent {
     data class SetAudioTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class SetSubtitleTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class DisableSubtitleTrack(val videoId: String) : VideoProxyEvent()
+    data class ResolveAndSetSource(val videoId: String, val itemId: String, val mediaSourceId: String) : VideoProxyEvent()
     data object ToggleDebugInfo : VideoProxyEvent()
 }

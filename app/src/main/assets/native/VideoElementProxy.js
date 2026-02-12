@@ -16,9 +16,149 @@
 
     console.log('[VideoProxy] Initializing video element proxy');
 
+    // ─── Override canPlayType to report ExoPlayer audio capabilities ───
+    //
+    // The Jellyfin web client's HtmlVideoPlayer.getSupportedAudioStreams()
+    // filters audio streams by the browser's DeviceProfile (built from
+    // canPlayType results). Chrome/Android doesn't natively support codecs
+    // like AC3, DTS, TrueHD, etc., so those audio tracks get filtered out.
+    // When only ≤1 audio stream passes the filter,
+    // setAudioStreamIndex() returns early without switching.
+    //
+    // By overriding canPlayType to report support for all audio codecs
+    // that ExoPlayer can decode, we ensure the DeviceProfile includes them
+    // and getSupportedAudioStreams() returns ALL audio tracks.
+    const originalCanPlayType = HTMLMediaElement.prototype.canPlayType;
+    HTMLMediaElement.prototype.canPlayType = function(type) {
+        const original = originalCanPlayType.call(this, type);
+        if (original) return original;
+
+        // ExoPlayer-supported audio codecs that Chrome typically rejects
+        const lowerType = type.toLowerCase();
+        const exoPlayerAudioCodecs = [
+            'ac-3', 'ec-3', 'ac3', 'eac3',       // Dolby Digital / E-AC3
+            'dtse', 'dtsc', 'dtsh', 'dts',        // DTS variants
+            'flac',                                 // FLAC
+            'truehd', 'mlp',                        // Dolby TrueHD
+            'alac',                                 // Apple Lossless
+            'mp2', 'mp1',                           // MPEG audio layers
+            'pcm', 'lpcm',                          // PCM variants
+            'wma',                                  // Windows Media Audio
+        ];
+
+        for (const codec of exoPlayerAudioCodecs) {
+            if (lowerType.includes(codec)) {
+                return 'probably';
+            }
+        }
+
+        return original;
+    };
+    console.log('[VideoProxy] canPlayType overridden for ExoPlayer audio codecs');
+
     // Store for proxied video elements
     const proxiedVideos = new Map();
     let videoIdCounter = 0;
+
+    // --- Playback context capture via fetch interception ---
+    // When the Jellyfin Web client calls the PlaybackInfo API before starting
+    // playback, we capture the item ID, media source ID, and MediaStreams
+    // so that when a blob: URL is set (from hls.js/MSE transcoding), we can
+    // resolve the real direct-play URL on the native side.
+    // We also capture audio stream indices for proper track mapping.
+    let currentPlaybackContext = null;
+
+    /**
+     * Extract playback context from a PlaybackInfo API response.
+     * Captures item ID, media source info, and audio/subtitle stream
+     * indices for mapping between Jellyfin server indices and ExoPlayer
+     * track group indices.
+     */
+    function extractPlaybackContext(itemId, data) {
+        const mediaSource = (data.MediaSources && data.MediaSources.length > 0)
+            ? data.MediaSources[0] : null;
+
+        // Collect audio stream indices (server MediaStream.Index values)
+        // in the order they appear. This establishes the mapping:
+        //   audioStreamIndices[0] → ExoPlayer audio group 0
+        //   audioStreamIndices[1] → ExoPlayer audio group 1
+        //   etc.
+        const audioStreamIndices = [];
+        const subtitleStreamIndices = [];
+        if (mediaSource && mediaSource.MediaStreams) {
+            for (const stream of mediaSource.MediaStreams) {
+                if (stream.Type === 'Audio') {
+                    audioStreamIndices.push(stream.Index);
+                } else if (stream.Type === 'Subtitle') {
+                    subtitleStreamIndices.push(stream.Index);
+                }
+            }
+        }
+
+        return {
+            itemId: itemId,
+            mediaSourceId: mediaSource ? mediaSource.Id : '',
+            playSessionId: data.PlaySessionId || '',
+            audioStreamIndices: audioStreamIndices,
+            subtitleStreamIndices: subtitleStreamIndices,
+        };
+    }
+
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+
+        try {
+            const url = typeof args[0] === 'string' ? args[0] :
+                         (args[0] instanceof Request ? args[0].url : null);
+
+            if (url && url.includes('/PlaybackInfo')) {
+                // Extract item ID from URL: /Items/{itemId}/PlaybackInfo
+                const match = url.match(/\/Items\/([a-f0-9-]+)\/PlaybackInfo/i);
+                if (match) {
+                    const clonedResponse = response.clone();
+                    const data = await clonedResponse.json();
+                    currentPlaybackContext = extractPlaybackContext(match[1], data);
+                    console.log('[VideoProxy] Captured playback context:',
+                        JSON.stringify(currentPlaybackContext));
+                }
+            }
+        } catch (e) {
+            // Don't let our interception break normal fetch behavior
+            console.warn('[VideoProxy] Error in fetch interception:', e);
+        }
+
+        return response;
+    };
+
+    // Also intercept XMLHttpRequest for compatibility with older web client versions
+    const originalXHROpen = XMLHttpRequest.prototype.open;
+    const originalXHRSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._videoProxyUrl = url;
+        return originalXHROpen.call(this, method, url, ...rest);
+    };
+
+    XMLHttpRequest.prototype.send = function(body) {
+        const xhrUrl = this._videoProxyUrl;
+        if (xhrUrl && typeof xhrUrl === 'string' && xhrUrl.includes('/PlaybackInfo')) {
+            this.addEventListener('load', function() {
+                try {
+                    const match = xhrUrl.match(/\/Items\/([a-f0-9-]+)\/PlaybackInfo/i);
+                    if (match && this.responseText) {
+                        const data = JSON.parse(this.responseText);
+                        currentPlaybackContext = extractPlaybackContext(match[1], data);
+                        console.log('[VideoProxy] Captured playback context (XHR):',
+                            JSON.stringify(currentPlaybackContext));
+                    }
+                } catch (e) {
+                    console.warn('[VideoProxy] Error in XHR interception:', e);
+                }
+            });
+        }
+        return originalXHRSend.call(this, body);
+    };
 
     // Generate unique video ID
     function generateVideoId() {
@@ -45,11 +185,15 @@
     class ProxyAudioTrack {
         constructor(trackList, info) {
             this._trackList = trackList;
-            this.id = String(info.index);
+            // Use the server's MediaStream.Index as the track id when available.
+            // This aligns with how Safari exposes native audioTrack.id, and
+            // ensures getTrackById(serverIndex) works if any code uses it.
+            this.id = String(info.serverStreamIndex ?? info.index);
             this.kind = info.isDefault ? 'main' : 'alternative';
             this.label = info.label || '';
             this.language = info.language || '';
             this._enabled = info.isSelected || false;
+            // _index is the ExoPlayer track group index (0-based among audio groups)
             this._index = info.index;
             this.channelCount = info.channelCount || 0;
             this.codec = info.codec || '';
@@ -57,11 +201,13 @@
 
         get enabled() { return this._enabled; }
         set enabled(value) {
-            if (value === this._enabled) return;
-            if (value) {
+            const boolVal = !!value;
+            if (boolVal === this._enabled) return;
+            if (boolVal) {
                 // Disable all other tracks in the list
                 this._trackList._tracks.forEach(t => { t._enabled = false; });
                 this._enabled = true;
+                console.log(`[VideoProxy] Audio track ${this._index} (id=${this.id}) enabled for ${this._trackList._videoId}`);
                 bridge.setAudioTrack(this._trackList._videoId, this._index);
                 this._trackList._dispatchChange();
             } else {
@@ -72,7 +218,7 @@
 
     /**
      * Proxy AudioTrackList - mimics the HTML5 AudioTrackList interface.
-     * Supports indexed access, length, getTrackById, and change events.
+     * Supports indexed access, length, getTrackById, iteration, and change events.
      */
     class ProxyAudioTrackList {
         constructor(videoId) {
@@ -88,6 +234,10 @@
                 get(target, prop, receiver) {
                     if (typeof prop === 'string' && /^\d+$/.test(prop)) {
                         return target._tracks[parseInt(prop, 10)];
+                    }
+                    // Support for...of iteration (Array.from also uses this)
+                    if (prop === Symbol.iterator) {
+                        return function() { return target._tracks[Symbol.iterator](); };
                     }
                     return Reflect.get(target, prop, receiver);
                 }
@@ -110,8 +260,23 @@
             }
         }
 
-        _update(trackInfos) {
-            this._tracks = trackInfos.map(info => new ProxyAudioTrack(this, info));
+        /**
+         * Update the track list from ExoPlayer track info.
+         * @param {Array} trackInfos - Track info objects from ExoPlayer
+         * @param {Array} [serverStreamIndices] - Server MediaStream.Index values
+         *   in the same order as the audio streams in the container. Maps
+         *   ExoPlayer track group indices → server stream indices.
+         */
+        _update(trackInfos, serverStreamIndices) {
+            this._tracks = trackInfos.map((info, i) => {
+                // Enrich with server stream index for proper id/mapping
+                const enriched = Object.assign({}, info, {
+                    serverStreamIndex: (serverStreamIndices && serverStreamIndices[i] !== undefined)
+                        ? serverStreamIndices[i]
+                        : undefined,
+                });
+                return new ProxyAudioTrack(this, enriched);
+            });
             this._dispatchChange();
         }
 
@@ -123,8 +288,41 @@
     }
 
     /**
+     * Create a TextTrackCueList-like wrapper around an array of cues.
+     * Supports indexed access, length, iteration, and getCueById.
+     */
+    function createCueList(cues) {
+        const list = Array.isArray(cues) ? [...cues] : [];
+        list.getCueById = function(id) {
+            return list.find(c => c.id === id) || null;
+        };
+        return list;
+    }
+
+    /**
+     * Subtitle codecs that ExoPlayer renders natively via SubtitleView.
+     * For these codecs, ExoPlayer decodes the embedded subtitle track and
+     * renders it directly — the web client's addCue is a no-op to prevent
+     * dual subtitle display.
+     *
+     * All other codecs (ASS/SSA, VTT, PGS, etc.) are rendered by the
+     * Jellyfin web client's DOM-based renderer: ExoPlayer's text tracks
+     * remain disabled and the web client downloads + renders via addCue.
+     */
+    const NATIVE_SUBTITLE_CODECS = [
+        'application/x-subrip',   // SubRip (.srt)
+    ];
+
+    /**
      * Proxy TextTrack - mimics the HTML5 TextTrack interface.
-     * Setting 'mode' triggers native subtitle track switching via the bridge.
+     *
+     * Subtitle rendering is routed based on codec:
+     * - SubRip (application/x-subrip): ExoPlayer renders natively via
+     *   SubtitleView. addCue() is a no-op. The bridge is called to enable
+     *   the text track in ExoPlayer.
+     * - All other codecs: The web client downloads subtitle data and renders
+     *   via DOM. addCue() stores cues, activeCues/cuechange drive rendering.
+     *   ExoPlayer's text tracks remain disabled.
      */
     class ProxyTextTrack {
         constructor(trackList, info) {
@@ -136,26 +334,68 @@
             this._mode = info.isSelected ? 'showing' : 'disabled';
             this._index = info.index;
             this.codec = info.codec || '';
-            this.cues = null;
-            this.activeCues = null;
+            this._cues = [];
+            this._lastActiveCueKey = '';
+            this._nativeRendering = false;
+            this._listeners = { cuechange: [] };
             this.oncuechange = null;
+        }
+
+        /**
+         * Whether this track's codec is handled by ExoPlayer's native
+         * subtitle renderer (SubtitleView) rather than the web client.
+         */
+        _isNativeRenderable() {
+            return NATIVE_SUBTITLE_CODECS.includes(this.codec);
+        }
+
+        /** Return all cues as a TextTrackCueList-like object. */
+        get cues() {
+            return createCueList(this._cues);
+        }
+
+        /** Return cues active at the current playback time. */
+        get activeCues() {
+            // When ExoPlayer renders this track natively, cues are empty
+            if (this._mode === 'disabled' || this._nativeRendering) return createCueList([]);
+            const currentTime = this._trackList._getCurrentTime();
+            const active = this._cues.filter(cue =>
+                currentTime >= cue.startTime && currentTime < cue.endTime
+            );
+            return createCueList(active);
         }
 
         get mode() { return this._mode; }
         set mode(value) {
             if (value === this._mode) return;
-            const oldMode = this._mode;
             this._mode = value;
 
             if (value === 'showing' || value === 'hidden') {
-                // Disable all other tracks first
+                // Disable all other tracks
                 this._trackList._tracks.forEach(t => {
-                    if (t !== this) t._mode = 'disabled';
+                    if (t !== this) {
+                        t._mode = 'disabled';
+                        t._nativeRendering = false;
+                    }
                 });
-                bridge.setSubtitleTrack(this._trackList._videoId, this._index);
+
+                if (this._isNativeRenderable()) {
+                    // SubRip: let ExoPlayer decode and render via SubtitleView
+                    this._nativeRendering = true;
+                    bridge.setSubtitleTrack(this._trackList._videoId, this._index);
+                    console.log(`[VideoProxy] Subtitle track ${this._index} (${this.codec}) → ExoPlayer native`);
+                } else {
+                    // Other codecs: disable ExoPlayer text tracks, let web client render
+                    this._nativeRendering = false;
+                    bridge.disableSubtitleTrack(this._trackList._videoId);
+                    console.log(`[VideoProxy] Subtitle track ${this._index} (${this.codec}) → WebView DOM`);
+                }
             } else if (value === 'disabled') {
-                // Check if all tracks are now disabled
-                const anyShowing = this._trackList._tracks.some(t => t._mode === 'showing' || t._mode === 'hidden');
+                this._nativeRendering = false;
+                // If no tracks are showing, disable ExoPlayer text tracks
+                const anyShowing = this._trackList._tracks.some(t =>
+                    t._mode === 'showing' || t._mode === 'hidden'
+                );
                 if (!anyShowing) {
                     bridge.disableSubtitleTrack(this._trackList._videoId);
                 }
@@ -164,8 +404,55 @@
             this._trackList._dispatchChange();
         }
 
-        addEventListener(type, listener) { /* stub */ }
-        removeEventListener(type, listener) { /* stub */ }
+        /**
+         * Add a cue to this text track.
+         * No-op when ExoPlayer renders this track natively (prevents dual
+         * subtitle display). For non-native tracks, cues are stored and
+         * exposed via activeCues so the web client can render them.
+         */
+        addCue(cue) {
+            if (this._nativeRendering) return;
+            this._cues.push(cue);
+        }
+
+        /**
+         * Remove a cue from this text track.
+         */
+        removeCue(cue) {
+            const idx = this._cues.indexOf(cue);
+            if (idx >= 0) this._cues.splice(idx, 1);
+        }
+
+        /**
+         * Check if the set of active cues has changed and fire cuechange
+         * if so. Called periodically when currentTime updates.
+         */
+        _checkCueChange() {
+            // Skip for native-rendered tracks (ExoPlayer handles them)
+            if (this._mode === 'disabled' || this._nativeRendering || this._cues.length === 0) return;
+            const currentTime = this._trackList._getCurrentTime();
+            const active = this._cues.filter(cue =>
+                currentTime >= cue.startTime && currentTime < cue.endTime
+            );
+            // Build a compact key from the active cue set for dirty-checking
+            const key = active.map(c => `${c.startTime}:${c.endTime}`).join('|');
+            if (key !== this._lastActiveCueKey) {
+                this._lastActiveCueKey = key;
+                const event = new Event('cuechange');
+                this._listeners.cuechange.forEach(l => l(event));
+                if (typeof this.oncuechange === 'function') this.oncuechange(event);
+            }
+        }
+
+        addEventListener(type, listener) {
+            if (this._listeners[type]) this._listeners[type].push(listener);
+        }
+
+        removeEventListener(type, listener) {
+            if (this._listeners[type]) {
+                this._listeners[type] = this._listeners[type].filter(l => l !== listener);
+            }
+        }
     }
 
     /**
@@ -186,6 +473,9 @@
                     if (typeof prop === 'string' && /^\d+$/.test(prop)) {
                         return target._tracks[parseInt(prop, 10)];
                     }
+                    if (prop === Symbol.iterator) {
+                        return function() { return target._tracks[Symbol.iterator](); };
+                    }
                     return Reflect.get(target, prop, receiver);
                 }
             });
@@ -205,6 +495,32 @@
             if (this._listeners[type]) {
                 this._listeners[type] = this._listeners[type].filter(l => l !== listener);
             }
+        }
+
+        /** Get the current playback time (seconds) from the proxied video. */
+        _getCurrentTime() {
+            const state = proxiedVideos.get(this._videoId);
+            return state ? state._currentTime : 0;
+        }
+
+        /**
+         * Check all tracks for cue changes.
+         * Called after currentTime updates to fire cuechange events.
+         */
+        _checkCueChanges() {
+            this._tracks.forEach(track => track._checkCueChange());
+        }
+
+        /**
+         * Add a track created via video.addTextTrack().
+         * Fires the addtrack event so the web client discovers it.
+         */
+        _addTrack(track) {
+            this._tracks.push(track);
+            const event = new Event('addtrack');
+            event.track = track;
+            this._listeners.addtrack.forEach(l => l(event));
+            if (typeof this.onaddtrack === 'function') this.onaddtrack(event);
         }
 
         _update(trackInfos) {
@@ -438,18 +754,32 @@
                 get() { return state._src; },
                 set(value) {
                     state._src = value;
-                    // blob: URLs come from hls.js (MSE) and data: URLs are
-                    // browser-internal — ExoPlayer cannot handle either.
-                    // Skip proxy and let WebView play them natively.
-                    if (value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value)) {
-                        // Lazily create the native ExoPlayer only when actually needed
+
+                    if (value && value.startsWith('blob:') && currentPlaybackContext && bridge.isEnabled()) {
+                        // blob: URL from hls.js (MSE transcoding) — resolve the real
+                        // direct-play URL via the Jellyfin API on the native side,
+                        // similar to how the external player works.
+                        console.log('[VideoProxy] Detected blob URL for ' + state.videoId +
+                            ', resolving via API (itemId=' + currentPlaybackContext.itemId + ')');
+                        state.ensureNativePlayer();
+                        state.isProxied = true;
+                        bridge.resolveAndSetSource(
+                            state.videoId,
+                            currentPlaybackContext.itemId,
+                            currentPlaybackContext.mediaSourceId
+                        );
+                        // Don't make transparent yet — wait for onFirstFrameRendered
+                        // so the episode backdrop image stays visible until ExoPlayer
+                        // has actual video content to display.
+                        state.startObserving();
+                    } else if (value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value)) {
+                        // Direct HTTP(S) URL — proxy directly to ExoPlayer
                         state.ensureNativePlayer();
                         state.isProxied = true;
                         bridge.setSource(state.videoId, value);
-                        // Make the video element AND all ancestor containers transparent
-                        // so the native TextureView below the WebView can show through.
-                        // The OSD controls have their own styling, so they remain visible.
-                        state.makeTransparent();
+                        // Don't make transparent yet — wait for onFirstFrameRendered
+                        // so the episode backdrop image stays visible until ExoPlayer
+                        // has actual video content to display.
                         state.startObserving();
                     } else {
                         state.isProxied = false;
@@ -609,6 +939,30 @@
                 return originalRequestFullscreen(options);
             };
         }
+
+        // Intercept addTextTrack so tracks created by the web client
+        // (e.g., for external subtitles) go through our ProxyTextTrackList.
+        const originalAddTextTrack = video.addTextTrack?.bind(video);
+        video.addTextTrack = function(kind, label, language) {
+            if (state.isProxied) {
+                const trackInfo = {
+                    index: state._textTrackList._tracks.length,
+                    label: label || '',
+                    language: language || '',
+                    codec: '',
+                    channelCount: 0,
+                    isDefault: false,
+                    isForced: kind === 'forced',
+                    isSelected: false,
+                };
+                const track = new ProxyTextTrack(state._textTrackList, trackInfo);
+                track.kind = kind || 'subtitles';
+                state._textTrackList._addTrack(track);
+                console.log(`[VideoProxy] addTextTrack: kind=${kind} label=${label} lang=${language}`);
+                return track;
+            }
+            return originalAddTextTrack ? originalAddTextTrack(kind, label, language) : null;
+        };
     }
 
     /**
@@ -732,6 +1086,8 @@
             if (state.currentTime !== undefined) {
                 proxyState._currentTime = state.currentTime / 1000;
                 proxyState.dispatchEvent('timeupdate');
+                // Check for subtitle cue changes and fire cuechange events
+                proxyState._textTrackList._checkCueChanges();
             }
             if (state.duration !== undefined) {
                 proxyState._duration = state.duration / 1000;
@@ -796,6 +1152,23 @@
         },
 
         /**
+         * Called when ExoPlayer has rendered its first video frame.
+         * This is the signal to make the web content transparent so the
+         * native video can show through, ensuring the episode backdrop
+         * image stays visible until there's actual video content to display.
+         * @param {string} videoId - The video element ID
+         */
+        onFirstFrameRendered(videoId) {
+            const proxyState = proxiedVideos.get(videoId);
+            if (!proxyState) return;
+
+            if (proxyState.isProxied && proxyState._savedStyles.length === 0) {
+                console.log(`[VideoProxy] First frame rendered for ${videoId}, making transparent`);
+                proxyState.makeTransparent();
+            }
+        },
+
+        /**
          * Called when the native video size changes (from ExoPlayer).
          * Updates the proxied videoWidth and videoHeight properties.
          * @param {string} videoId - The video element ID
@@ -828,8 +1201,13 @@
                 const tracks = typeof tracksJson === 'string' ? JSON.parse(tracksJson) : tracksJson;
 
                 if (tracks.audioTracks && proxyState._audioTrackList) {
-                    proxyState._audioTrackList._update(tracks.audioTracks);
-                    console.log(`[VideoProxy] Updated ${tracks.audioTracks.length} audio tracks for ${videoId}`);
+                    // Pass server stream indices so ProxyAudioTrack.id matches
+                    // the server's MediaStream.Index (used by the web client's
+                    // setAudioStreamIndex for track matching).
+                    const serverAudioIndices = currentPlaybackContext?.audioStreamIndices;
+                    proxyState._audioTrackList._update(tracks.audioTracks, serverAudioIndices);
+                    console.log(`[VideoProxy] Updated ${tracks.audioTracks.length} audio tracks for ${videoId}` +
+                        (serverAudioIndices ? ` (server indices: [${serverAudioIndices.join(',')}])` : ''));
                 }
 
                 if (tracks.subtitleTracks && proxyState._textTrackList) {
@@ -841,6 +1219,29 @@
             }
         }
     };
+
+    // ─── Define audioTracks on HTMLMediaElement.prototype ───
+    //
+    // Some web client code checks browser capabilities at the prototype level
+    // (e.g., 'audioTracks' in HTMLMediaElement.prototype) to determine if
+    // native audio track switching is available. Chrome doesn't have this
+    // property natively, so we add it. The getter delegates to the proxy
+    // state if available, ensuring both feature detection and runtime access
+    // work correctly.
+    if (!('audioTracks' in HTMLMediaElement.prototype)) {
+        Object.defineProperty(HTMLMediaElement.prototype, 'audioTracks', {
+            get() {
+                const state = this._videoProxyState;
+                if (state) {
+                    return state._audioTrackList;
+                }
+                return undefined;
+            },
+            configurable: true,
+            enumerable: true,
+        });
+        console.log('[VideoProxy] Defined audioTracks on HTMLMediaElement.prototype');
+    }
 
     // Proxy existing videos when DOM is ready
     if (document.readyState === 'loading') {

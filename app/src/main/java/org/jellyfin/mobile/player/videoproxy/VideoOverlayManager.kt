@@ -18,7 +18,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.jellyfin.mobile.app.AppPreferences
+import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
+import org.jellyfin.mobile.player.source.MediaSourceResolver
 import org.jellyfin.mobile.webapp.WebappFunctionChannel
+import org.jellyfin.sdk.api.client.ApiClient
+import org.jellyfin.sdk.api.client.extensions.videosApi
+import org.jellyfin.sdk.model.serializer.toUUIDOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
@@ -34,6 +39,9 @@ class VideoOverlayManager(
     private val appPreferences: AppPreferences,
     private val webappFunctionChannel: WebappFunctionChannel,
     private val coroutineScope: CoroutineScope,
+    private val mediaSourceResolver: MediaSourceResolver,
+    private val apiClient: ApiClient,
+    private val deviceProfileBuilder: DeviceProfileBuilder,
 ) : VideoProxyPlayerCallback {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -46,7 +54,7 @@ class VideoOverlayManager(
     // Video ID -> Texture View
     private val textureViews = ConcurrentHashMap<String, TextureView>()
 
-    // Video ID -> Subtitle View
+    // Video ID -> Subtitle View (for natively-rendered tracks like SubRip)
     private val subtitleViews = ConcurrentHashMap<String, SubtitleView>()
 
     // Video ID -> Current bounds
@@ -117,6 +125,7 @@ class VideoOverlayManager(
             is VideoProxyEvent.SetAudioTrack -> setAudioTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.SetSubtitleTrack -> setSubtitleTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.DisableSubtitleTrack -> disableSubtitleTrack(event.videoId)
+            is VideoProxyEvent.ResolveAndSetSource -> resolveAndSetVideoSource(event.videoId, event.itemId, event.mediaSourceId)
             is VideoProxyEvent.ToggleDebugInfo -> toggleDebugInfo()
         }
     }
@@ -183,7 +192,10 @@ class VideoOverlayManager(
         textureViews[videoId] = textureView
         player.setTextureView(textureView)
 
-        // Create subtitle view on top of the texture view
+        // Create subtitle view on top of the texture view.
+        // Used for natively-rendered tracks (e.g., SubRip).
+        // For non-native codecs, ExoPlayer's text tracks remain disabled
+        // and this view stays empty — the web client renders via DOM.
         val subtitleView = SubtitleView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -236,6 +248,57 @@ class VideoOverlayManager(
     private fun setVideoSource(videoId: String, src: String) {
         Timber.d("Setting video source for $videoId: $src")
         players[videoId]?.setSource(src)
+    }
+
+    /**
+     * Resolve a blob: URL to a real direct-play URL via the Jellyfin API,
+     * similar to how [org.jellyfin.mobile.bridge.ExternalPlayer] works.
+     *
+     * When the web client chooses HLS transcoding (blob: URLs from hls.js/MSE),
+     * we bypass that and ask the server for a static direct-play stream instead,
+     * letting ExoPlayer handle the decoding natively.
+     */
+    private fun resolveAndSetVideoSource(videoId: String, itemId: String, mediaSourceId: String) {
+        val itemUuid = itemId.toUUIDOrNull() ?: run {
+            Timber.e("Invalid item ID for video proxy resolution: $itemId")
+            callJavaScript("VideoProxyCallback.onError('$videoId', 4, 'Invalid item ID')")
+            return
+        }
+
+        Timber.d("Resolving direct play URL for $videoId: itemId=$itemId, mediaSourceId=$mediaSourceId")
+
+        // Use the external player profile which forces direct play (no transcoding)
+        val profile = deviceProfileBuilder.getExternalPlayerProfile()
+        val videosApi = apiClient.videosApi
+
+        coroutineScope.launch(Dispatchers.IO) {
+            mediaSourceResolver.resolveMediaSource(
+                itemId = itemUuid,
+                mediaSourceId = mediaSourceId.ifEmpty { null },
+                deviceProfile = profile,
+                maxStreamingBitrate = Int.MAX_VALUE, // Ensure direct play
+                autoOpenLiveStream = false,
+            ).onSuccess { jellyfinMediaSource ->
+                val url = videosApi.getVideoStreamUrl(
+                    itemId = jellyfinMediaSource.itemId,
+                    static = true,
+                    mediaSourceId = jellyfinMediaSource.id,
+                    playSessionId = jellyfinMediaSource.playSessionId,
+                )
+                Timber.d("Resolved direct play URL for $videoId: $url")
+
+                // Set the resolved URL as the video source (must run on main thread)
+                launch(Dispatchers.Main) {
+                    setVideoSource(videoId, url)
+                }
+            }.onFailure { error ->
+                Timber.e(error, "Failed to resolve media source for $videoId (itemId=$itemId)")
+                val escapedMessage = (error.message ?: "Unknown error").replace("'", "\\'")
+                launch(Dispatchers.Main) {
+                    callJavaScript("VideoProxyCallback.onError('$videoId', 4, 'Failed to resolve: $escapedMessage')")
+                }
+            }
+        }
     }
 
     /**
@@ -437,6 +500,13 @@ class VideoOverlayManager(
 
         // Notify JavaScript about video intrinsic dimensions
         callJavaScript("VideoProxyCallback.onVideoSizeChanged('$videoId', $width, $height, $pixelWidthHeightRatio)")
+    }
+
+    override fun onRenderedFirstFrame(videoId: String) {
+        Timber.d("First frame rendered for $videoId")
+        // Notify JavaScript so it can make the web content transparent now that
+        // the native ExoPlayer has actual video content to show through.
+        callJavaScript("VideoProxyCallback.onFirstFrameRendered('$videoId')")
     }
 
     /**

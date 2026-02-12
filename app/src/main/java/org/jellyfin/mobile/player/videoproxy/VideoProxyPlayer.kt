@@ -34,6 +34,7 @@ interface VideoProxyPlayerCallback {
     fun onError(videoId: String, errorCode: Int, errorMessage: String)
     fun onTracksChanged(videoId: String, audioTracks: List<ProxyTrackInfo>, subtitleTracks: List<ProxyTrackInfo>)
     fun onVideoSizeChanged(videoId: String, width: Int, height: Int, pixelWidthHeightRatio: Float)
+    fun onRenderedFirstFrame(videoId: String)
 }
 
 /**
@@ -159,6 +160,14 @@ class VideoProxyPlayer(
             addListener(this@VideoProxyPlayer)
             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
 
+            // Disable text track rendering — subtitles are handled entirely
+            // by the Jellyfin web client's DOM-based renderer. ExoPlayer still
+            // reports available text tracks (via onTracksChanged) so the web
+            // client knows which subtitle streams exist.
+            trackSelectionParameters = trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+
             // Add analytics listener for debug info collection
             addAnalyticsListener(object : AnalyticsListener {
                 override fun onVideoDecoderInitialized(
@@ -215,7 +224,8 @@ class VideoProxyPlayer(
     }
 
     /**
-     * Set the subtitle view for rendering embedded subtitles.
+     * Set the subtitle view for rendering natively-handled subtitle tracks
+     * (e.g., SubRip). Only used when the JS proxy routes a track to ExoPlayer.
      */
     fun setSubtitleView(view: SubtitleView?) {
         subtitleView = view
@@ -320,6 +330,8 @@ class VideoProxyPlayer(
 
     /**
      * Select a subtitle track by its index among text track groups.
+     * Called by the JS proxy when a natively-renderable track (e.g., SubRip)
+     * is selected. Enables text tracks and overrides the selection.
      */
     fun setSubtitleTrack(groupIndex: Int) {
         val player = player ?: return
@@ -328,7 +340,7 @@ class VideoProxyPlayer(
             return
         }
 
-        Timber.d("Selecting subtitle track $groupIndex for $videoId")
+        Timber.d("Selecting subtitle track $groupIndex for $videoId (native rendering)")
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .addOverride(TrackSelectionOverride(targetGroup.mediaTrackGroup, listOf(0)))
@@ -337,12 +349,14 @@ class VideoProxyPlayer(
     }
 
     /**
-     * Disable all subtitle tracks.
+     * Disable all subtitle tracks in ExoPlayer.
+     * Called when the user selects a non-native subtitle track (handled by
+     * the web client) or disables subtitles entirely.
      */
     fun disableSubtitles() {
         val player = player ?: return
 
-        Timber.d("Disabling subtitles for $videoId")
+        Timber.d("Disabling ExoPlayer subtitles for $videoId")
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_TEXT)
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -580,12 +594,20 @@ class VideoProxyPlayer(
 
     @Suppress("DEPRECATION")
     override fun onCues(cueGroup: CueGroup) {
+        // Forward cues to SubtitleView for natively-rendered tracks (e.g., SubRip).
+        // When ExoPlayer's text tracks are disabled (for non-native codecs),
+        // this callback is not called, so no action is needed.
         subtitleView?.setCues(cueGroup.cues)
     }
 
     override fun onVideoSizeChanged(videoSize: VideoSize) {
         Timber.d("Video size changed for $videoId: ${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
         callback.onVideoSizeChanged(videoId, videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
+    }
+
+    override fun onRenderedFirstFrame() {
+        Timber.d("Rendered first frame for $videoId")
+        callback.onRenderedFirstFrame(videoId)
     }
 
     /**
