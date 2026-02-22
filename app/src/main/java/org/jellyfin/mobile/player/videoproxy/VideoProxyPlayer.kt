@@ -115,6 +115,10 @@ class VideoProxyPlayer(
     private var audioTrackGroups: List<Tracks.Group> = emptyList()
     private var subtitleTrackGroups: List<Tracks.Group> = emptyList()
 
+    // Seeking state: suppresses stale position updates from updateProgress()
+    // between the JS bridge.seek() call and ExoPlayer completing the seek.
+    private var isSeeking = false
+
     // Debug info tracking
     private var videoDecoderName: String = "N/A"
     private var audioDecoderName: String = "N/A"
@@ -278,8 +282,10 @@ class VideoProxyPlayer(
      * Seek to a position.
      */
     fun seekTo(positionMs: Long) {
-        player?.seekTo(positionMs)
+        isSeeking = true
         _currentState = _currentState.copy(currentTimeMs = positionMs)
+        notifyStateChanged()
+        player?.seekTo(positionMs)
     }
 
     /**
@@ -540,6 +546,12 @@ class VideoProxyPlayer(
         }
 
         if (playbackState == Player.STATE_READY) {
+            if (isSeeking) {
+                isSeeking = false
+                _currentState = _currentState.copy(
+                    currentTimeMs = player?.currentPosition ?: _currentState.currentTimeMs,
+                )
+            }
             _currentState = _currentState.copy(
                 durationMs = getDuration(),
             )
@@ -631,9 +643,11 @@ class VideoProxyPlayer(
     /**
      * Update current time and notify state changed.
      * This should be called periodically during playback.
+     * Skipped while a seek is in progress to avoid sending stale positions.
      */
     fun updateProgress() {
         val player = player ?: return
+        if (isSeeking) return
         if (player.playbackState == Player.STATE_READY && player.isPlaying) {
             _currentState = _currentState.copy(currentTimeMs = player.currentPosition)
             notifyStateChanged()

@@ -563,6 +563,11 @@
             this._audioTrackList = new ProxyAudioTrackList(videoId);
             this._textTrackList = new ProxyTextTrackList(videoId);
             
+            // Seeking state: guards against stale position updates from native
+            // during the window between JS bridge.seek() and ExoPlayer processing.
+            this._seeking = false;
+            this._seekStartTime = 0;
+
             // Position tracking
             this._bounds = { x: 0, y: 0, width: 0, height: 0 };
             this._visible = true;
@@ -795,9 +800,18 @@
                 set(value) {
                     state._currentTime = value;
                     if (state.isProxied) {
+                        state._seeking = true;
+                        state._seekStartTime = Date.now();
+                        state.dispatchEvent('seeking');
                         bridge.seek(state.videoId, Math.floor(value * 1000));
                     }
+                    state._textTrackList._checkCueChanges();
                 }
+            },
+
+            // Seeking state (read-only)
+            seeking: {
+                get() { return state._seeking; }
             },
 
             // Duration (read-only from JS perspective)
@@ -1084,9 +1098,21 @@
             if (!proxyState) return;
 
             if (state.currentTime !== undefined) {
-                proxyState._currentTime = state.currentTime / 1000;
+                if (proxyState._seeking) {
+                    // During seeking, don't overwrite _currentTime with stale
+                    // native positions. Accept the native time once the race
+                    // condition window has passed (300ms covers the event channel
+                    // + ExoPlayer processing latency).
+                    const elapsed = Date.now() - proxyState._seekStartTime;
+                    if (elapsed > 300) {
+                        proxyState._seeking = false;
+                        proxyState._currentTime = state.currentTime / 1000;
+                        proxyState.dispatchEvent('seeked');
+                    }
+                } else {
+                    proxyState._currentTime = state.currentTime / 1000;
+                }
                 proxyState.dispatchEvent('timeupdate');
-                // Check for subtitle cue changes and fire cuechange events
                 proxyState._textTrackList._checkCueChanges();
             }
             if (state.duration !== undefined) {
@@ -1103,7 +1129,16 @@
                 proxyState.dispatchEvent('ended');
             }
             if (state.readyState !== undefined) {
+                const prevReadyState = proxyState._readyState;
                 proxyState._readyState = state.readyState;
+                // Clear seeking when readyState recovers to READY after buffering
+                if (proxyState._seeking && prevReadyState <= 2 && state.readyState >= 4) {
+                    proxyState._seeking = false;
+                    if (state.currentTime !== undefined) {
+                        proxyState._currentTime = state.currentTime / 1000;
+                    }
+                    proxyState.dispatchEvent('seeked');
+                }
                 if (state.readyState >= 1) {
                     proxyState.dispatchEvent('loadedmetadata');
                 }
