@@ -37,11 +37,13 @@
             app:layout_constraintTop_toBottomOf="@id/progress_indicator" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- Video underlay container for ExoPlayer proxy - renders below WebView -->
+    <!-- Video underlay container for ExoPlayer proxy - renders below WebView.
+         Black background so letterbox/pillarbox and any non-video area show black. -->
     <FrameLayout
         android:id="@+id/video_overlay_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="@android:color/black"
         android:clickable="false"
         android:focusable="false" />
 
