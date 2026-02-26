@@ -1,11 +1,13 @@
 package org.jellyfin.mobile.player.cast
 
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.ext.cast.CastPlayer
-import com.google.android.exoplayer2.ext.cast.SessionAvailabilityListener
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.SessionAvailabilityListener
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.framework.CastContext
 import org.jellyfin.mobile.player.audio.MediaService
 
+@UnstableApi
 class CastPlayerProvider(private val mediaService: MediaService) : ICastPlayerProvider, SessionAvailabilityListener {
     private val castPlayer: CastPlayer? = try {
         CastPlayer(CastContext.getSharedInstance(mediaService)).apply {

@@ -21,15 +21,14 @@ import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import androidx.mediarouter.media.MediaRouterParams
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.audio.AudioAttributes
-import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector
-import com.google.android.exoplayer2.ext.mediasession.TimelineQueueNavigator
-import com.google.android.exoplayer2.source.MediaSource
-import com.google.android.exoplayer2.ui.PlayerNotificationManager
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.ui.PlayerNotificationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -48,8 +47,9 @@ import org.jellyfin.sdk.api.client.exception.ApiClientException
 import org.koin.android.ext.android.get
 import org.koin.android.ext.android.inject
 import timber.log.Timber
-import com.google.android.exoplayer2.MediaItem as ExoPlayerMediaItem
+import androidx.media3.common.MediaItem as ExoPlayerMediaItem
 
+@UnstableApi
 class MediaService : MediaBrowserServiceCompat() {
     private val apiClientController: ApiClientController by inject()
     private val libraryBrowser: LibraryBrowser by inject()
@@ -66,7 +66,7 @@ class MediaService : MediaBrowserServiceCompat() {
     private lateinit var notificationManager: AudioNotificationManager
     private lateinit var mediaController: MediaControllerCompat
     private lateinit var mediaSession: MediaSessionCompat
-    private lateinit var mediaSessionConnector: MediaSessionConnector
+    private lateinit var mediaSessionConnector: MediaSessionConnectorCompat
     private lateinit var mediaRouteSelector: MediaRouteSelector
     private lateinit var mediaRouter: MediaRouter
     private val mediaRouterCallback = MediaRouterCallback()
@@ -121,7 +121,7 @@ class MediaService : MediaBrowserServiceCompat() {
 
         mediaController = MediaControllerCompat(this, mediaSession)
 
-        mediaSessionConnector = MediaSessionConnector(mediaSession).apply {
+        mediaSessionConnector = MediaSessionConnectorCompat(mediaSession).apply {
             setPlayer(exoPlayer)
             setPlaybackPreparer(MediaPlaybackPreparer())
             setQueueNavigator(MediaQueueNavigator(mediaSession))
@@ -277,12 +277,12 @@ class MediaService : MediaBrowserServiceCompat() {
         switchToPlayer(currentPlayer, exoPlayer)
     }
 
-    private inner class MediaQueueNavigator(mediaSession: MediaSessionCompat) : TimelineQueueNavigator(mediaSession) {
+    private inner class MediaQueueNavigator(@Suppress("UNUSED_PARAMETER") mediaSession: MediaSessionCompat) : MediaSessionConnectorCompat.QueueNavigator {
         override fun getMediaDescription(player: Player, windowIndex: Int): MediaDescriptionCompat =
             currentPlaylistItems[windowIndex].description
     }
 
-    private inner class MediaPlaybackPreparer : MediaSessionConnector.PlaybackPreparer {
+    private inner class MediaPlaybackPreparer : MediaSessionConnectorCompat.PlaybackPreparer {
         override fun getSupportedPrepareActions(): Long = 0L or
             PlaybackStateCompat.ACTION_PREPARE or
             PlaybackStateCompat.ACTION_PLAY or

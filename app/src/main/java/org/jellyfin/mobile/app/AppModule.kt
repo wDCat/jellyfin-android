@@ -3,20 +3,21 @@ package org.jellyfin.mobile.app
 import android.content.Context
 import androidx.core.net.toUri
 import coil.ImageLoader
-import com.google.android.exoplayer2.ext.cronet.CronetDataSource
-import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory
-import com.google.android.exoplayer2.extractor.ts.TsExtractor
-import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
-import com.google.android.exoplayer2.source.MediaSource
-import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.source.SingleSampleMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
-import com.google.android.exoplayer2.upstream.DataSource
-import com.google.android.exoplayer2.upstream.DataSpec
-import com.google.android.exoplayer2.upstream.DefaultDataSource
-import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
-import com.google.android.exoplayer2.upstream.ResolvingDataSource
-import com.google.android.exoplayer2.util.Util
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cronet.CronetDataSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.SingleSampleMediaSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.TsExtractor
 import kotlinx.coroutines.channels.Channel
 import okhttp3.OkHttpClient
 import org.chromium.net.CronetEngine
@@ -53,6 +54,7 @@ const val VIDEO_PROXY_EVENT_CHANNEL = "VideoProxyEventChannel"
 private const val HTTP_CACHE_SIZE: Long = 16 * 1024 * 1024
 private const val TS_SEARCH_PACKETS = 1800
 
+@UnstableApi
 val applicationModule = module {
     single { AppPreferences(androidApplication()) }
     single { OkHttpClient() }

@@ -2,25 +2,26 @@ package org.jellyfin.mobile.player.videoproxy
 
 import android.content.Context
 import android.net.Uri
-import android.view.TextureView
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.DefaultRenderersFactory
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.Format
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.Tracks
-import com.google.android.exoplayer2.analytics.AnalyticsListener
-import com.google.android.exoplayer2.decoder.DecoderCounters
-import com.google.android.exoplayer2.mediacodec.MediaCodecInfo
-import com.google.android.exoplayer2.mediacodec.MediaCodecSelector
-import com.google.android.exoplayer2.text.CueGroup
-import com.google.android.exoplayer2.trackselection.TrackSelectionOverride
-import com.google.android.exoplayer2.ui.SubtitleView
-import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter
-import com.google.android.exoplayer2.video.VideoSize
-import com.google.android.exoplayer2.util.MimeTypes
+import android.view.SurfaceView
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import androidx.media3.ui.SubtitleView
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import timber.log.Timber
 import java.util.Locale
@@ -96,6 +97,7 @@ data class VideoProxyDebugInfo(
  * A lightweight ExoPlayer wrapper for video element proxy playback.
  * This player renders video content to overlay the HTML video element.
  */
+@UnstableApi
 class VideoProxyPlayer(
     private val context: Context,
     private val videoId: String,
@@ -104,7 +106,7 @@ class VideoProxyPlayer(
 ) : Player.Listener {
 
     private var player: ExoPlayer? = null
-    private var textureView: TextureView? = null
+    private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
     private var isReleased = false
 
@@ -216,15 +218,16 @@ class VideoProxyPlayer(
             })
         }
 
-        textureView?.let { player?.setVideoTextureView(it) }
+        surfaceView?.let { player?.setVideoSurfaceView(it) }
     }
 
     /**
-     * Set the texture view for video rendering.
+     * Set the surface view for video rendering.
+     * SurfaceView is used instead of TextureView to support HDR output.
      */
-    fun setTextureView(texture: TextureView?) {
-        textureView = texture
-        player?.setVideoTextureView(texture)
+    fun setSurfaceView(surface: SurfaceView?) {
+        surfaceView = surface
+        player?.setVideoSurfaceView(surface)
     }
 
     /**
@@ -431,7 +434,7 @@ class VideoProxyPlayer(
             0L
         }
 
-        val surfaceSizeStr = textureView?.let { "${it.width}x${it.height}" } ?: "N/A"
+        val surfaceSizeStr = surfaceView?.let { "${it.width}x${it.height}" } ?: "N/A"
 
         val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(context)
         val bandwidthEstimateBps = bandwidthMeter.bitrateEstimate
@@ -513,7 +516,7 @@ class VideoProxyPlayer(
             release()
         }
         player = null
-        textureView = null
+        surfaceView = null
         subtitleView = null
         audioTrackGroups = emptyList()
         subtitleTrackGroups = emptyList()

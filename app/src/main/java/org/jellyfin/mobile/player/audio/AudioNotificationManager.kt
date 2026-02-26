@@ -21,15 +21,17 @@ package org.jellyfin.mobile.player.audio
 import android.app.PendingIntent
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.session.MediaSession
 import android.net.Uri
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.request.ImageRequest
-import com.google.android.exoplayer2.ForwardingPlayer
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.ui.PlayerNotificationManager
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.PlayerNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +47,7 @@ import org.koin.core.component.inject
  * A wrapper class for ExoPlayer's PlayerNotificationManager. It sets up the notification shown to
  * the user during audio playback and provides track metadata, such as track title and icon image.
  */
+@UnstableApi
 class AudioNotificationManager(
     private val context: Context,
     sessionToken: MediaSessionCompat.Token,
@@ -68,7 +71,7 @@ class AudioNotificationManager(
             .build()
 
         notificationManager.apply {
-            setMediaSessionToken(sessionToken)
+            setMediaSessionToken(sessionToken.token as MediaSession.Token)
             setSmallIcon(R.drawable.ic_notification)
         }
     }

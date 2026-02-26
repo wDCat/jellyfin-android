@@ -1,9 +1,10 @@
 package org.jellyfin.mobile.utils
 
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.source.TrackGroup
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
-import com.google.android.exoplayer2.trackselection.TrackSelectionOverride
+import androidx.media3.common.C
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 
 /**
  * Select the [trackGroup] of the specified [type] and ensure the type is enabled.
@@ -11,6 +12,7 @@ import com.google.android.exoplayer2.trackselection.TrackSelectionOverride
  * @param type One of the TRACK_TYPE_* constants defined in [C].
  * @param trackGroup the [TrackGroup] to select.
  */
+@UnstableApi
 fun DefaultTrackSelector.selectTrackByTypeAndGroup(type: Int, trackGroup: TrackGroup): Boolean {
     val parameters = with(buildUponParameters()) {
         clearOverridesOfType(type)
@@ -26,6 +28,7 @@ fun DefaultTrackSelector.selectTrackByTypeAndGroup(type: Int, trackGroup: TrackG
  *
  * @param type One of the TRACK_TYPE_* constants defined in [C].
  */
+@UnstableApi
 fun DefaultTrackSelector.clearSelectionAndDisableRendererByType(type: Int): Boolean {
     val parameters = with(buildUponParameters()) {
         clearOverridesOfType(type)

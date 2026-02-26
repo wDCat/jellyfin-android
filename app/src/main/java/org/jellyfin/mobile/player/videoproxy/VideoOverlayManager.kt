@@ -1,17 +1,17 @@
 package org.jellyfin.mobile.player.videoproxy
 
 import android.content.Context
-import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
-import com.google.android.exoplayer2.ui.SubtitleView
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
  * This class handles the creation, positioning, and lifecycle of video overlays
  * that render on top of the WebView.
  */
+@UnstableApi
 class VideoOverlayManager(
     private val context: Context,
     private val appPreferences: AppPreferences,
@@ -51,8 +52,8 @@ class VideoOverlayManager(
     // Video ID -> Player instance
     private val players = ConcurrentHashMap<String, VideoProxyPlayer>()
     
-    // Video ID -> Texture View
-    private val textureViews = ConcurrentHashMap<String, TextureView>()
+    // Video ID -> Surface View
+    private val surfaceViews = ConcurrentHashMap<String, SurfaceView>()
 
     // Video ID -> Subtitle View (for natively-rendered tracks like SubRip)
     private val subtitleViews = ConcurrentHashMap<String, SubtitleView>()
@@ -143,8 +144,8 @@ class VideoOverlayManager(
             Timber.d("Releasing existing player for $videoId before re-creating")
             oldPlayer.release()
         }
-        textureViews.remove(videoId)?.let { oldTexture ->
-            (oldTexture.parent as? ViewGroup)?.removeView(oldTexture)
+        surfaceViews.remove(videoId)?.let { oldSurface ->
+            (oldSurface.parent as? ViewGroup)?.removeView(oldSurface)
         }
         subtitleViews.remove(videoId)?.let { oldSubtitle ->
             (oldSubtitle.parent as? ViewGroup)?.removeView(oldSubtitle)
@@ -171,26 +172,22 @@ class VideoOverlayManager(
         player.initialize()
         players[videoId] = player
 
-        // Create texture view directly (we're already on the main thread).
-        // TextureView is below WebView in z-order (defined in layout XML).
-        // WebView content is made transparent in the video area by JavaScript,
-        // allowing the TextureView content to show through.
-        // Touch events are handled by WebView directly (it's on top).
+        // Create SurfaceView (supports HDR output via hardware overlay).
+        // SurfaceView uses hole-punching: it renders behind the Window by default,
+        // and the WebView's transparent area lets the video show through.
         val container = overlayContainer ?: return
         
-        val textureView = TextureView(context).apply {
+        val surfaceView = SurfaceView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
-            // TextureView supports transparency by default when content has alpha
-            isOpaque = false
             visibility = View.GONE
         }
         
-        container.addView(textureView)
-        textureViews[videoId] = textureView
-        player.setTextureView(textureView)
+        container.addView(surfaceView)
+        surfaceViews[videoId] = surfaceView
+        player.setSurfaceView(surfaceView)
 
         // Create subtitle view on top of the texture view.
         // Used for natively-rendered tracks (e.g., SubRip).
@@ -211,11 +208,11 @@ class VideoOverlayManager(
 
         // Apply any pending bounds that arrived before the views were created
         videoBounds[videoId]?.let { bounds ->
-            applyBoundsToTextureView(textureView, bounds)
+            applyBoundsToSurfaceView(surfaceView, bounds)
             applyBoundsToSubtitleView(subtitleView, bounds)
         }
 
-        Timber.d("TextureView and SubtitleView created for $videoId")
+        Timber.d("SurfaceView and SubtitleView created for $videoId")
     }
 
     /**
@@ -229,8 +226,8 @@ class VideoOverlayManager(
         videoVisibility.remove(videoId)
         videoNativeSizes.remove(videoId)
 
-        textureViews.remove(videoId)?.let { textureView ->
-            (textureView.parent as? ViewGroup)?.removeView(textureView)
+        surfaceViews.remove(videoId)?.let { surfaceView ->
+            (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
         }
         subtitleViews.remove(videoId)?.let { subtitleView ->
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
@@ -308,8 +305,8 @@ class VideoOverlayManager(
         Timber.d("Playing video $videoId")
         players[videoId]?.play()
 
-        // Show the texture view and subtitle view (already on main thread)
-        textureViews[videoId]?.visibility = View.VISIBLE
+        // Show the surface view and subtitle view (already on main thread)
+        surfaceViews[videoId]?.visibility = View.VISIBLE
         subtitleViews[videoId]?.visibility = View.VISIBLE
     }
 
@@ -351,47 +348,44 @@ class VideoOverlayManager(
     private fun updateVideoBounds(videoId: String, bounds: VideoBounds) {
         videoBounds[videoId] = bounds
 
-        textureViews[videoId]?.let { applyBoundsToTextureView(it, bounds) }
+        surfaceViews[videoId]?.let { applyBoundsToSurfaceView(it, bounds) }
         subtitleViews[videoId]?.let { applyBoundsToSubtitleView(it, bounds) }
 
-        // Reapply aspect ratio transform after bounds change
-        reapplyAspectRatioTransform(videoId)
+        // Reapply aspect ratio after bounds change
+        reapplyAspectRatio(videoId)
     }
 
     /**
-     * Apply bounds to a TextureView, converting CSS pixels to device pixels.
+     * Apply bounds to a SurfaceView, converting CSS pixels to device pixels.
      */
-    private fun applyBoundsToTextureView(textureView: TextureView, bounds: VideoBounds) {
+    private fun applyBoundsToSurfaceView(surfaceView: SurfaceView, bounds: VideoBounds) {
         val webView = webView ?: return
         
-        // Convert WebView coordinates to screen coordinates
         val webViewLocation = IntArray(2)
         webView.getLocationOnScreen(webViewLocation)
         
-        // Calculate position relative to overlay container
         val containerLocation = IntArray(2)
         overlayContainer?.getLocationOnScreen(containerLocation)
         
         val density = context.resources.displayMetrics.density
         
-        // Convert CSS pixels to device pixels
         val left = (bounds.x * density).toInt() + webViewLocation[0] - containerLocation[0]
         val top = (bounds.y * density).toInt() + webViewLocation[1] - containerLocation[1]
         val width = (bounds.width * density).toInt()
         val height = (bounds.height * density).toInt()
         
-        val layoutParams = textureView.layoutParams as? FrameLayout.LayoutParams ?: return
+        val layoutParams = surfaceView.layoutParams as? FrameLayout.LayoutParams ?: return
         layoutParams.width = width
         layoutParams.height = height
         layoutParams.leftMargin = left
         layoutParams.topMargin = top
-        textureView.layoutParams = layoutParams
+        surfaceView.layoutParams = layoutParams
         
         Timber.d("Updated bounds: left=$left, top=$top, width=$width, height=$height")
     }
 
     /**
-     * Apply bounds to a SubtitleView, using the same coordinate conversion as TextureView.
+     * Apply bounds to a SubtitleView, using the same coordinate conversion as SurfaceView.
      */
     private fun applyBoundsToSubtitleView(subtitleView: SubtitleView, bounds: VideoBounds) {
         val webView = webView ?: return
@@ -424,7 +418,7 @@ class VideoOverlayManager(
         Timber.d("Setting visibility for $videoId: $visible")
         videoVisibility[videoId] = visible
         val viewVisibility = if (visible) View.VISIBLE else View.GONE
-        textureViews[videoId]?.visibility = viewVisibility
+        surfaceViews[videoId]?.visibility = viewVisibility
         subtitleViews[videoId]?.visibility = viewVisibility
     }
 
@@ -434,11 +428,10 @@ class VideoOverlayManager(
     private fun setVideoFullscreen(videoId: String, fullscreen: Boolean) {
         Timber.d("Setting fullscreen for $videoId: $fullscreen")
 
-        val textureView = textureViews[videoId] ?: return
+        val surfaceView = surfaceViews[videoId] ?: return
         val subtitleView = subtitleViews[videoId]
 
         if (fullscreen) {
-            // Expand to fill the container
             val fullscreenParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -446,18 +439,16 @@ class VideoOverlayManager(
                 leftMargin = 0
                 topMargin = 0
             }
-            textureView.layoutParams = fullscreenParams
+            surfaceView.layoutParams = fullscreenParams
             subtitleView?.layoutParams = FrameLayout.LayoutParams(fullscreenParams)
         } else {
-            // Restore original bounds
             videoBounds[videoId]?.let { bounds ->
-                applyBoundsToTextureView(textureView, bounds)
+                applyBoundsToSurfaceView(surfaceView, bounds)
                 subtitleView?.let { applyBoundsToSubtitleView(it, bounds) }
             }
         }
 
-        // Reapply aspect ratio transform after layout change
-        reapplyAspectRatioTransform(videoId)
+        reapplyAspectRatio(videoId)
     }
 
     /**
@@ -491,10 +482,10 @@ class VideoOverlayManager(
         val size = VideoNativeSize(width, height, pixelWidthHeightRatio)
         videoNativeSizes[videoId] = size
 
-        // Apply aspect ratio transform to the TextureView
-        textureViews[videoId]?.let { textureView ->
-            textureView.post {
-                applyAspectRatioTransform(textureView, size)
+        // Apply aspect ratio via LayoutParams to the SurfaceView
+        surfaceViews[videoId]?.let { surfaceView ->
+            surfaceView.post {
+                applyAspectRatio(surfaceView, size)
             }
         }
 
@@ -510,44 +501,54 @@ class VideoOverlayManager(
     }
 
     /**
-     * Apply a matrix transform to the TextureView to maintain the video's
-     * aspect ratio (FIT_CENTER behavior). TextureView by default stretches
-     * its content to fill the view, which crops/distorts the video when the
-     * aspect ratios don't match. This transform corrects that.
+     * Apply aspect ratio correction to SurfaceView by adjusting its LayoutParams
+     * to achieve FIT_CENTER behavior. SurfaceView doesn't support matrix transforms,
+     * so we calculate the correct size and offset directly.
      */
-    private fun applyAspectRatioTransform(textureView: TextureView, size: VideoNativeSize) {
-        val viewWidth = textureView.width.toFloat()
-        val viewHeight = textureView.height.toFloat()
+    private fun applyAspectRatio(surfaceView: SurfaceView, size: VideoNativeSize) {
+        val parent = surfaceView.parent as? FrameLayout ?: return
+        val containerWidth = (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.width
+            ?.takeIf { it > 0 } ?: parent.width
+        val containerHeight = (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.height
+            ?.takeIf { it > 0 } ?: parent.height
 
-        if (viewWidth <= 0f || viewHeight <= 0f || size.width <= 0 || size.height <= 0) return
+        if (containerWidth <= 0 || containerHeight <= 0 || size.width <= 0 || size.height <= 0) return
 
         val videoAspect = (size.width * size.pixelWidthHeightRatio) / size.height
-        val viewAspect = viewWidth / viewHeight
+        val containerAspect = containerWidth.toFloat() / containerHeight.toFloat()
 
-        val matrix = Matrix()
+        val params = surfaceView.layoutParams as? FrameLayout.LayoutParams ?: return
+        val currentLeft = params.leftMargin
+        val currentTop = params.topMargin
 
-        if (videoAspect > viewAspect) {
-            // Video is wider than view: fit by width, letterbox (bars top/bottom)
-            val scaleY = viewAspect / videoAspect
-            matrix.setScale(1f, scaleY, viewWidth / 2f, viewHeight / 2f)
+        if (videoAspect > containerAspect) {
+            val fitHeight = (containerWidth / videoAspect).toInt()
+            val yOffset = (containerHeight - fitHeight) / 2
+            params.width = containerWidth
+            params.height = fitHeight
+            params.leftMargin = currentLeft
+            params.topMargin = currentTop + yOffset
         } else {
-            // Video is taller than view: fit by height, pillarbox (bars left/right)
-            val scaleX = videoAspect / viewAspect
-            matrix.setScale(scaleX, 1f, viewWidth / 2f, viewHeight / 2f)
+            val fitWidth = (containerHeight * videoAspect).toInt()
+            val xOffset = (containerWidth - fitWidth) / 2
+            params.width = fitWidth
+            params.height = containerHeight
+            params.leftMargin = currentLeft + xOffset
+            params.topMargin = currentTop
         }
 
-        textureView.setTransform(matrix)
-        Timber.d("Applied aspect ratio transform: video=${size.width}x${size.height} view=${viewWidth}x${viewHeight}")
+        surfaceView.layoutParams = params
+        Timber.d("Applied aspect ratio: video=${size.width}x${size.height} container=${containerWidth}x${containerHeight}")
     }
 
     /**
-     * Reapply the aspect ratio transform for a video, if native size is known.
+     * Reapply the aspect ratio for a video, if native size is known.
      * Should be called after any bounds/layout change.
      */
-    private fun reapplyAspectRatioTransform(videoId: String) {
-        val textureView = textureViews[videoId] ?: return
+    private fun reapplyAspectRatio(videoId: String) {
+        val surfaceView = surfaceViews[videoId] ?: return
         val size = videoNativeSizes[videoId] ?: return
-        textureView.post { applyAspectRatioTransform(textureView, size) }
+        surfaceView.post { applyAspectRatio(surfaceView, size) }
     }
 
     override fun onStateChanged(videoId: String, state: VideoProxyPlayerState) {
@@ -882,10 +883,10 @@ class VideoOverlayManager(
         
         // Remove all overlay views
         mainHandler.post {
-            textureViews.values.forEach { textureView ->
-                (textureView.parent as? ViewGroup)?.removeView(textureView)
+            surfaceViews.values.forEach { surfaceView ->
+                (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
             }
-            textureViews.clear()
+            surfaceViews.clear()
             subtitleViews.values.forEach { subtitleView ->
                 (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
             }

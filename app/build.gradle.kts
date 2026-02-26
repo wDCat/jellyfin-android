@@ -20,12 +20,12 @@ detekt {
 
 android {
     namespace = "org.jellyfin.mobile"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "org.jellyfin.mobile.custom"
         minSdk = 21
-        targetSdk = 34
+        targetSdk = 35
         versionName = project.getVersionName()
         versionCode = getVersionCode(versionName!!)
         setProperty("archivesBaseName", "jellyfin-android-v$versionName")
@@ -148,12 +148,12 @@ dependencies {
     // Media
     implementation(libs.androidx.media)
     implementation(libs.androidx.mediarouter)
-    implementation(libs.bundles.exoplayer) {
+    implementation(libs.bundles.media3) {
         // Exclude Play Services cronet provider library
         exclude("com.google.android.gms", "play-services-cronet")
     }
-    implementation(libs.jellyfin.exoplayer.ffmpegextension)
-    proprietaryImplementation(libs.exoplayer.cast)
+    implementation(libs.jellyfin.media3.ffmpeg)
+    proprietaryImplementation(libs.media3.cast)
     proprietaryImplementation(libs.bundles.playservices)
 
     // Room

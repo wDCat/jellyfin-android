@@ -1,7 +1,8 @@
 package org.jellyfin.mobile.player
 
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
+import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import org.jellyfin.mobile.player.source.ExternalSubtitleStream
 import org.jellyfin.mobile.player.source.JellyfinMediaSource
 import org.jellyfin.mobile.utils.clearSelectionAndDisableRendererByType
@@ -11,6 +12,7 @@ import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
 
+@UnstableApi
 class TrackSelectionHelper(
     private val viewModel: PlayerViewModel,
     private val trackSelector: DefaultTrackSelector,
