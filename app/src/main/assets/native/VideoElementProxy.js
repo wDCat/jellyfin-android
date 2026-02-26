@@ -1333,7 +1333,7 @@
                     btn.querySelector('[class*="ItemText"]') ||
                     btn.lastElementChild ||
                     btn;
-                textEl.textContent = debugActive ? 'ExoPlayer Debug ✓' : 'ExoPlayer Debug';
+                textEl.textContent = 'ExoPlayer Debug';
                 // Update icon if present
                 const iconEl = btn.querySelector('.material-icons, [class*="Icon"]');
                 if (iconEl && iconEl !== textEl) {
