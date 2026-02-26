@@ -1409,18 +1409,14 @@
             const buttons = itemsContainer.querySelectorAll('button, .listItem, [data-action]');
             if (buttons.length === 0) return;
 
+            // Only inject into the top-level OSD settings menu, which contains multiple
+            // categories of options simultaneously (quality, audio, subtitle, speed, etc.).
+            // Sub-menus (audio track list, quality list, etc.) only contain one category,
+            // so requiring at least 2 keyword matches filters them out.
             const menuText = itemsContainer.textContent.toLowerCase();
-            const isPlayerMenu = menuText.includes('quality') ||
-                menuText.includes('speed') ||
-                menuText.includes('audio') ||
-                menuText.includes('subtitle') ||
-                menuText.includes('playback') ||
-                menuText.includes('stats') ||
-                menuText.includes('stream') ||
-                // Also check if we're in video OSD context
-                !!document.querySelector('.videoOsdBottom, [class*="videoOsd"]');
-
-            if (!isPlayerMenu) return;
+            const settingsKeywords = ['quality', 'speed', 'audio', 'subtitle', 'playback', 'stats', 'stream'];
+            const matchCount = settingsKeywords.filter(kw => menuText.includes(kw)).length;
+            if (matchCount < 2) return;
 
             // Add debug menu item at the end of the menu
             const menuItem = createMenuItem(itemsContainer);
