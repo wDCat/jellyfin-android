@@ -196,9 +196,10 @@ class VideoOverlayManager(
         surfaceViews[videoId] = surfaceView
         player.setSurfaceView(surfaceView)
 
-        // Create subtitle view in a separate container ABOVE the WebView.
-        // SubtitleView is a regular View (not hole-punching like SurfaceView),
-        // so it must be above the WebView in the z-order to be visible.
+        // Create subtitle view in a separate container BELOW the WebView.
+        // SubtitleView is visible through the transparent video area of the WebView
+        // (makeTransparent() in VideoElementProxy.js clears all ancestor backgrounds).
+        // Placing it below the WebView ensures the OSD controls naturally appear on top.
         val subContainer = subtitleContainer ?: container
         val subtitleView = SubtitleView(context).apply {
             layoutParams = FrameLayout.LayoutParams(

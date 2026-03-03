@@ -47,23 +47,25 @@
         android:clickable="false"
         android:focusable="false" />
 
-    <!-- WebView is above video container, with transparent background in video area -->
-    <WebView
-        android:id="@+id/web_view"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="invisible" />
-
-    <!-- Subtitle overlay container - ABOVE WebView so ExoPlayer's SubtitleView
-         is not occluded. SurfaceView uses hardware hole-punching and can live
-         below the WebView, but SubtitleView is a regular View that must be
-         above it in the z-order to be visible. -->
+    <!-- Subtitle underlay container for ExoPlayer proxy - between video container and WebView.
+         SubtitleView is a regular View (not hole-punching like SurfaceView). It sits below
+         the WebView but is visible through the transparent video area (the VideoElementProxy
+         JS makes all video ancestors transparent). The OSD (WebView HTML content) naturally
+         overlays on top — subtitles are hidden when controls are visible, which is standard
+         media player behaviour. -->
     <FrameLayout
         android:id="@+id/video_subtitle_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clickable="false"
         android:focusable="false" />
+
+    <!-- WebView is above video container, with transparent background in video area -->
+    <WebView
+        android:id="@+id/web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="invisible" />
 
     <!-- Bitrate indicator in top-right corner - shown during buffering -->
     <androidx.appcompat.widget.AppCompatTextView
