@@ -10,3 +10,5 @@ build
 .cursor
 openspec
 *.jks
+.*
+CLAUDE.md
