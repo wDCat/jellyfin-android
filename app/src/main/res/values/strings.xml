@@ -121,6 +121,18 @@
     <string name="pref_subtitle_style">Customize subtitle style</string>
     <string name="pref_subtitle_style_summary">You can change the subtitle style in the Android settings</string>
 
+    <string name="pref_subtitle_offset_title">Subtitle offset</string>
+    <string name="pref_subtitle_font_title">Subtitle font</string>
+    <string name="pref_subtitle_font_default">Default</string>
+    <string name="pref_subtitle_font_sans_serif">Sans Serif</string>
+    <string name="pref_subtitle_font_serif">Serif</string>
+    <string name="pref_subtitle_font_monospace">Monospace</string>
+    <string name="pref_subtitle_text_size_title">Subtitle text size</string>
+    <string name="pref_subtitle_background_title">Subtitle background</string>
+    <string name="pref_subtitle_background_transparent">Transparent</string>
+    <string name="pref_subtitle_background_semi">Semi-transparent</string>
+    <string name="pref_subtitle_background_opaque">Opaque</string>
+
     <string name="pref_category_downloads">Downloads</string>
     <string name="pref_download_location">Download location</string>
 </resources>

@@ -1,13 +1,18 @@
 package org.jellyfin.mobile.settings
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+import android.widget.EditText
+import android.widget.FrameLayout
+import androidx.annotation.StringRes
 import androidx.fragment.app.Fragment
 import de.Maxr1998.modernpreferences.Preference
 import de.Maxr1998.modernpreferences.PreferencesAdapter
@@ -18,8 +23,10 @@ import de.Maxr1998.modernpreferences.helpers.defaultOnClick
 import de.Maxr1998.modernpreferences.helpers.defaultOnSelectionChange
 import de.Maxr1998.modernpreferences.helpers.pref
 import de.Maxr1998.modernpreferences.helpers.screen
+import de.Maxr1998.modernpreferences.helpers.seekBar
 import de.Maxr1998.modernpreferences.helpers.singleChoice
 import de.Maxr1998.modernpreferences.preferences.CheckBoxPreference
+import de.Maxr1998.modernpreferences.preferences.SeekBarPreference
 import de.Maxr1998.modernpreferences.preferences.choice.SelectionItem
 import org.jellyfin.mobile.R
 import org.jellyfin.mobile.app.AppPreferences
@@ -46,6 +53,10 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     private lateinit var externalPlayerChoicePreference: Preference
     private lateinit var videoProxyEnabledPreference: CheckBoxPreference
     private lateinit var videoProxyHardwareDecodingPreference: CheckBoxPreference
+    private lateinit var subtitleOffsetPreference: SeekBarPreference
+    private lateinit var subtitleFontPreference: Preference
+    private lateinit var subtitleTextSizePreference: SeekBarPreference
+    private lateinit var subtitleBackgroundPreference: Preference
 
     init {
         Preference.Config.titleMaxLines = 2
@@ -112,6 +123,11 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
                 externalPlayerChoicePreference.enabled = selection == VideoPlayerType.EXTERNAL_PLAYER
                 videoProxyEnabledPreference.enabled = selection == VideoPlayerType.WEB_PLAYER
                 videoProxyHardwareDecodingPreference.enabled = selection == VideoPlayerType.WEB_PLAYER && videoProxyEnabledPreference.checked
+                val subtitlePrefsEnabled = selection == VideoPlayerType.WEB_PLAYER && videoProxyEnabledPreference.checked
+                subtitleOffsetPreference.enabled = subtitlePrefsEnabled
+                subtitleFontPreference.enabled = subtitlePrefsEnabled
+                subtitleTextSizePreference.enabled = subtitlePrefsEnabled
+                subtitleBackgroundPreference.enabled = subtitlePrefsEnabled
             }
         }
         startLandscapeVideoInLandscapePreference = checkBox(Constants.PREF_EXOPLAYER_START_LANDSCAPE_VIDEO_IN_LANDSCAPE) {
@@ -149,12 +165,71 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
             enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER
             defaultOnCheckedChange { checked ->
                 videoProxyHardwareDecodingPreference.enabled = checked
+                subtitleOffsetPreference.enabled = checked
+                subtitleFontPreference.enabled = checked
+                subtitleTextSizePreference.enabled = checked
+                subtitleBackgroundPreference.enabled = checked
             }
         }
         videoProxyHardwareDecodingPreference = checkBox(Constants.PREF_VIDEO_PROXY_HARDWARE_DECODING) {
             titleRes = R.string.pref_video_proxy_hardware_decoding_title
             summaryRes = R.string.pref_video_proxy_hardware_decoding_summary
             defaultValue = true
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+        }
+
+        subtitleOffsetPreference = seekBar(Constants.PREF_SUBTITLE_OFFSET) {
+            titleRes = R.string.pref_subtitle_offset_title
+            min = 0
+            max = 200
+            default = AppPreferences.DEFAULT_SUBTITLE_OFFSET
+            step = 2
+            formatter = { "${it}dp" }
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+            defaultOnClick {
+                showNumberInputDialog(
+                    R.string.pref_subtitle_offset_title,
+                    subtitleOffsetPreference.value, 0, 200, "dp",
+                ) { subtitleOffsetPreference.value = it }
+            }
+        }
+
+        val subtitleFontOptions = listOf(
+            SelectionItem("default", R.string.pref_subtitle_font_default),
+            SelectionItem("sans_serif", R.string.pref_subtitle_font_sans_serif),
+            SelectionItem("serif", R.string.pref_subtitle_font_serif),
+            SelectionItem("monospace", R.string.pref_subtitle_font_monospace),
+        )
+        subtitleFontPreference = singleChoice(Constants.PREF_SUBTITLE_FONT, subtitleFontOptions) {
+            titleRes = R.string.pref_subtitle_font_title
+            initialSelection = "default"
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+        }
+
+        subtitleTextSizePreference = seekBar(Constants.PREF_SUBTITLE_TEXT_SIZE) {
+            titleRes = R.string.pref_subtitle_text_size_title
+            min = 8
+            max = 50
+            default = AppPreferences.DEFAULT_SUBTITLE_TEXT_SIZE
+            step = 1
+            formatter = { "${it}sp" }
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+            defaultOnClick {
+                showNumberInputDialog(
+                    R.string.pref_subtitle_text_size_title,
+                    subtitleTextSizePreference.value, 8, 50, "sp",
+                ) { subtitleTextSizePreference.value = it }
+            }
+        }
+
+        val subtitleBackgroundOptions = listOf(
+            SelectionItem("transparent", R.string.pref_subtitle_background_transparent),
+            SelectionItem("semi", R.string.pref_subtitle_background_semi),
+            SelectionItem("opaque", R.string.pref_subtitle_background_opaque),
+        )
+        subtitleBackgroundPreference = singleChoice(Constants.PREF_SUBTITLE_BACKGROUND, subtitleBackgroundOptions) {
+            titleRes = R.string.pref_subtitle_background_title
+            initialSelection = "transparent"
             enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
         }
 
@@ -243,6 +318,38 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
                 .getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 .absolutePath
         }
+    }
+
+    @Suppress("MagicNumber")
+    private fun showNumberInputDialog(
+        @StringRes titleRes: Int,
+        currentValue: Int,
+        min: Int,
+        max: Int,
+        unit: String,
+        onConfirm: (Int) -> Unit,
+    ) {
+        val editText = EditText(requireContext()).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(currentValue.toString())
+            hint = "$min–$max $unit"
+            selectAll()
+        }
+        val container = FrameLayout(requireContext()).apply {
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, 0)
+            addView(editText)
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(titleRes)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val value = editText.text.toString().toIntOrNull()?.coerceIn(min, max)
+                if (value != null) onConfirm(value)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        editText.requestFocus()
     }
 
     companion object {

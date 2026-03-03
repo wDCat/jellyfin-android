@@ -143,6 +143,12 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
         // Initialize video overlay manager if video proxy is enabled
         if (appPreferences.videoProxyEnabled) {
+            // Enable per-pixel alpha on the window surface so that semi-transparent
+            // subtitle backgrounds composite correctly over the SurfaceView video.
+            // Without this the window surface is OPAQUE and alpha is discarded,
+            // making semi-transparent backgrounds appear solid black.
+            activity?.window?.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+
             videoOverlayManager = VideoOverlayManager(
                 context = requireContext(),
                 appPreferences = appPreferences,
@@ -152,7 +158,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 apiClient = apiClient,
                 deviceProfileBuilder = deviceProfileBuilder,
             ).also { manager ->
-                manager.initialize(binding.videoOverlayContainer, webView)
+                manager.initialize(binding.videoOverlayContainer, binding.videoSubtitleContainer, webView)
                 manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)
                 manager.setBitrateIndicatorView(binding.videoProxyBitrateIndicator)
                 binding.videoProxyDebugClose.setOnClickListener {

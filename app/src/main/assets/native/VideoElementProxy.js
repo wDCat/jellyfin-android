@@ -85,15 +85,28 @@
         //   etc.
         const audioStreamIndices = [];
         const subtitleStreamIndices = [];
+        // Subtitle stream details for codec/delivery matching
+        const subtitleStreams = [];
         if (mediaSource && mediaSource.MediaStreams) {
             for (const stream of mediaSource.MediaStreams) {
                 if (stream.Type === 'Audio') {
                     audioStreamIndices.push(stream.Index);
                 } else if (stream.Type === 'Subtitle') {
                     subtitleStreamIndices.push(stream.Index);
+                    subtitleStreams.push({
+                        index: stream.Index,
+                        codec: (stream.Codec || stream.codec || '').toLowerCase(),
+                        deliveryMethod: stream.DeliveryMethod || stream.deliveryMethod || '',
+                        isExternal: !!(stream.IsExternal ?? stream.isExternal),
+                        language: stream.Language || stream.language || '',
+                        title: stream.DisplayTitle || stream.displayTitle || stream.Title || stream.title || '',
+                    });
                 }
             }
         }
+
+        const defaultSubtitleStreamIndex = mediaSource
+            ? (mediaSource.DefaultSubtitleStreamIndex ?? -1) : -1;
 
         return {
             itemId: itemId,
@@ -101,11 +114,128 @@
             playSessionId: data.PlaySessionId || '',
             audioStreamIndices: audioStreamIndices,
             subtitleStreamIndices: subtitleStreamIndices,
+            subtitleStreams: subtitleStreams,
+            defaultSubtitleStreamIndex: defaultSubtitleStreamIndex,
         };
+    }
+
+    /**
+     * Detect when the web client fetches a subtitle for an embedded SRT track.
+     * Sets _activeNativeSubtitleIndex on the proxy state so the mode setter
+     * can redirect to ExoPlayer native rendering instead of web DOM rendering.
+     *
+     * This handles the "External" delivery case: the server extracts embedded
+     * SRT from the container and serves it via API, but ExoPlayer already has
+     * the track embedded — it's more reliable to let ExoPlayer render it
+     * natively via SubtitleView.
+     */
+    function handleSubtitleFetched(streamIndex) {
+        const ctx = currentPlaybackContext;
+        if (!ctx) {
+            console.log(`[VideoProxy] handleSubtitleFetched(${streamIndex}): no playback context`);
+            return;
+        }
+
+        const serverStream = ctx.subtitleStreams.find(s => s.index === streamIndex);
+        console.log(`[VideoProxy] handleSubtitleFetched(${streamIndex}): ` +
+            (serverStream
+                ? `codec=${serverStream.codec} isExternal=${serverStream.isExternal} delivery=${serverStream.deliveryMethod}`
+                : 'stream NOT found in context'));
+
+        for (const [, proxyState] of proxiedVideos) {
+            if (!proxyState.isProxied) continue;
+
+            if (serverStream && !serverStream.isExternal &&
+                NATIVE_SUBTITLE_SERVER_CODECS.includes(serverStream.codec)) {
+                // Look up by server stream index (id)
+                let exoTrack = proxyState._textTrackList._tracks.find(
+                    t => t._source !== 'web' && t.id === String(streamIndex)
+                );
+
+                // Fallback: if exact id match fails (mapping issue), try
+                // matching by language among native-renderable ExoPlayer tracks
+                if (!exoTrack && serverStream.language) {
+                    exoTrack = proxyState._textTrackList._tracks.find(
+                        t => t._source !== 'web' && t._isNativeRenderable() &&
+                             t.language && serverStream.language &&
+                             t.language.substring(0, 3) === serverStream.language.substring(0, 3)
+                    );
+                    if (exoTrack) {
+                        console.log(`[VideoProxy] ID match failed, language fallback matched: ` +
+                            `lang=${serverStream.language} → ExoPlayer group ${exoTrack._index}`);
+                    }
+                }
+
+                if (exoTrack) {
+                    proxyState._activeNativeSubtitleIndex = exoTrack._index;
+                    console.log(`[VideoProxy] Native subtitle override: stream ${streamIndex}` +
+                        ` → ExoPlayer group ${exoTrack._index}`);
+                    return;
+                }
+
+                // Log available ExoPlayer tracks for debugging
+                const exoTracks = proxyState._textTrackList._tracks
+                    .filter(t => t._source !== 'web')
+                    .map(t => `{id=${t.id}, lang=${t.language}, codec=${t._serverCodec}}`);
+                console.log(`[VideoProxy] No ExoPlayer track matched stream ${streamIndex}. ` +
+                    `Available: [${exoTracks.join(', ')}]`);
+            }
+
+            // Not an embedded SRT or no matching ExoPlayer track → clear override
+            proxyState._activeNativeSubtitleIndex = -1;
+        }
+    }
+
+    /**
+     * Fallback: try to resolve a native ExoPlayer subtitle track by matching
+     * language/label against embedded SRT ExoPlayer tracks. Used when the
+     * fetch/XHR interception didn't set _activeNativeSubtitleIndex.
+     */
+    function tryResolveNativeSubtitle(proxyState, language, label) {
+        const exoTracks = proxyState._textTrackList._tracks.filter(
+            t => t._source !== 'web' && t._isNativeRenderable()
+        );
+        if (exoTracks.length === 0) return;
+
+        // Try matching by language (first 3 chars, e.g. "eng", "chi", "jpn")
+        const langPrefix = language.substring(0, 3).toLowerCase();
+        let match = exoTracks.find(t =>
+            t.language && t.language.substring(0, 3).toLowerCase() === langPrefix
+        );
+
+        // If no language match and there's only one native-renderable track,
+        // assume it's the one the user wants
+        if (!match && exoTracks.length === 1) {
+            match = exoTracks[0];
+            console.log(`[VideoProxy] tryResolveNativeSubtitle: single ExoPlayer SRT track, using it`);
+        }
+
+        if (match) {
+            proxyState._activeNativeSubtitleIndex = match._index;
+            console.log(`[VideoProxy] tryResolveNativeSubtitle: lang=${language} label=${label}` +
+                ` → ExoPlayer group ${match._index} (lang=${match.language})`);
+        }
     }
 
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
+        // Detect subtitle API fetches BEFORE awaiting response, so
+        // _activeNativeSubtitleIndex is set before the web client processes
+        // the response. This is critical for the mode setter to redirect
+        // to ExoPlayer native rendering.
+        try {
+            const preUrl = typeof args[0] === 'string' ? args[0] :
+                            (args[0] instanceof Request ? args[0].url : null);
+            if (preUrl) {
+                const subtitleMatch = preUrl.match(/\/Subtitles\/(\d+)\//);
+                if (subtitleMatch) {
+                    handleSubtitleFetched(parseInt(subtitleMatch[1], 10));
+                }
+            }
+        } catch (e) {
+            console.warn('[VideoProxy] Error in pre-fetch subtitle detection:', e);
+        }
+
         const response = await originalFetch.apply(this, args);
 
         try {
@@ -142,20 +272,28 @@
 
     XMLHttpRequest.prototype.send = function(body) {
         const xhrUrl = this._videoProxyUrl;
-        if (xhrUrl && typeof xhrUrl === 'string' && xhrUrl.includes('/PlaybackInfo')) {
-            this.addEventListener('load', function() {
-                try {
-                    const match = xhrUrl.match(/\/Items\/([a-f0-9-]+)\/PlaybackInfo/i);
-                    if (match && this.responseText) {
-                        const data = JSON.parse(this.responseText);
-                        currentPlaybackContext = extractPlaybackContext(match[1], data);
-                        console.log('[VideoProxy] Captured playback context (XHR):',
-                            JSON.stringify(currentPlaybackContext));
+        if (xhrUrl && typeof xhrUrl === 'string') {
+            if (xhrUrl.includes('/PlaybackInfo')) {
+                this.addEventListener('load', function() {
+                    try {
+                        const match = xhrUrl.match(/\/Items\/([a-f0-9-]+)\/PlaybackInfo/i);
+                        if (match && this.responseText) {
+                            const data = JSON.parse(this.responseText);
+                            currentPlaybackContext = extractPlaybackContext(match[1], data);
+                            console.log('[VideoProxy] Captured playback context (XHR):',
+                                JSON.stringify(currentPlaybackContext));
+                        }
+                    } catch (e) {
+                        console.warn('[VideoProxy] Error in XHR interception:', e);
                     }
-                } catch (e) {
-                    console.warn('[VideoProxy] Error in XHR interception:', e);
-                }
-            });
+                });
+            }
+
+            // Detect subtitle API fetches via XHR
+            const subtitleMatch = xhrUrl.match(/\/Subtitles\/(\d+)\//);
+            if (subtitleMatch) {
+                handleSubtitleFetched(parseInt(subtitleMatch[1], 10));
+            }
         }
         return originalXHRSend.call(this, body);
     };
@@ -314,6 +452,69 @@
     ];
 
     /**
+     * Jellyfin server-side codec names that correspond to NATIVE_SUBTITLE_CODECS.
+     * Used to match PlaybackInfo stream data with ExoPlayer MIME types.
+     */
+    const NATIVE_SUBTITLE_SERVER_CODECS = ['srt', 'subrip', 'mov_text', 'tx3g', 'text'];
+
+    /**
+     * Auto-enable ExoPlayer's subtitle track if the user's selected subtitle
+     * is SRT/SubRip and embedded in the container.
+     *
+     * For embedded SRT, the web client relies on browser-native text track
+     * rendering, which doesn't work with the ExoPlayer proxy (the browser
+     * never decodes the container). ExoPlayer must render SRT natively via
+     * SubtitleView instead.
+     *
+     * For external SRT files, the web client downloads them from the server
+     * API and renders via its own DOM overlay — no ExoPlayer intervention.
+     *
+     * For non-SRT codecs, the web client downloads and renders via DOM.
+     */
+    function autoEnableSubtitleTrack(proxyState) {
+        const ctx = currentPlaybackContext;
+        if (!ctx || ctx.defaultSubtitleStreamIndex < 0) return;
+
+        // Find the selected subtitle stream in the server's metadata
+        const selectedStream = ctx.subtitleStreams.find(
+            s => s.index === ctx.defaultSubtitleStreamIndex
+        );
+        if (!selectedStream) return;
+
+        // Only auto-enable for SRT/SubRip (ExoPlayer renders natively)
+        if (!NATIVE_SUBTITLE_SERVER_CODECS.includes(selectedStream.codec)) {
+            console.log(`[VideoProxy] Selected subtitle is ${selectedStream.codec} → web rendering`);
+            return;
+        }
+
+        // External subtitle files are downloaded and rendered by the web
+        // client. Only auto-enable ExoPlayer for embedded (non-external) SRT.
+        if (selectedStream.isExternal) {
+            console.log('[VideoProxy] Default subtitle is external SRT file → web rendering');
+            return;
+        }
+
+        // Find the ProxyTextTrack by server stream index (ID-based lookup).
+        // This is more reliable than positional mapping because ProxyTextTrack.id
+        // is set to the server stream index during _update().
+        const tracks = proxyState._textTrackList._tracks;
+        const targetTrack = tracks.find(
+            t => t._source !== 'web' && t.id === String(ctx.defaultSubtitleStreamIndex)
+        );
+        if (!targetTrack) {
+            console.log('[VideoProxy] No ExoPlayer text track for server index ' +
+                ctx.defaultSubtitleStreamIndex);
+            return;
+        }
+
+        console.log(`[VideoProxy] Auto-enabling embedded SRT subtitle: ` +
+            `server index=${ctx.defaultSubtitleStreamIndex}, ` +
+            `exo group=${targetTrack._index}, codec=${targetTrack.codec}`);
+
+        targetTrack.mode = 'showing';
+    }
+
+    /**
      * Proxy TextTrack - mimics the HTML5 TextTrack interface.
      *
      * Subtitle rendering is routed based on codec:
@@ -327,16 +528,24 @@
     class ProxyTextTrack {
         constructor(trackList, info) {
             this._trackList = trackList;
-            this.id = String(info.index);
+            this.id = String(info.serverStreamIndex ?? info.index);
             this.kind = info.isForced ? 'forced' : 'subtitles';
             this.label = info.label || '';
             this.language = info.language || '';
             this._mode = info.isSelected ? 'showing' : 'disabled';
+            // _index is the ExoPlayer track group index (0-based among subtitle groups)
             this._index = info.index;
+            // ExoPlayer MIME type (may be internal like 'application/x-media3-cues')
             this.codec = info.codec || '';
+            // Server-side codec from Jellyfin API (e.g. 'srt', 'ass', 'subrip')
+            this._serverCodec = info._serverCodec || '';
+            // Jellyfin delivery method ('Embed', 'External', 'Encode')
+            this._deliveryMethod = info._deliveryMethod || '';
             this._cues = [];
             this._lastActiveCueKey = '';
             this._nativeRendering = false;
+            // 'exoplayer' for tracks reported by ExoPlayer, 'web' for addTextTrack()
+            this._source = info._source || 'exoplayer';
             this._listeners = { cuechange: [] };
             this.oncuechange = null;
         }
@@ -344,8 +553,15 @@
         /**
          * Whether this track's codec is handled by ExoPlayer's native
          * subtitle renderer (SubtitleView) rather than the web client.
+         *
+         * Uses the server-side codec (from Jellyfin API) as the primary check
+         * because Media3 reports all parsed subtitles as 'application/x-media3-cues'
+         * regardless of the original format.
          */
         _isNativeRenderable() {
+            if (this._serverCodec) {
+                return NATIVE_SUBTITLE_SERVER_CODECS.includes(this._serverCodec);
+            }
             return NATIVE_SUBTITLE_CODECS.includes(this.codec);
         }
 
@@ -380,15 +596,33 @@
                 });
 
                 if (this._isNativeRenderable()) {
-                    // SubRip: let ExoPlayer decode and render via SubtitleView
+                    // ExoPlayer track with native-renderable codec (e.g. SRT)
                     this._nativeRendering = true;
                     bridge.setSubtitleTrack(this._trackList._videoId, this._index);
-                    console.log(`[VideoProxy] Subtitle track ${this._index} (${this.codec}) → ExoPlayer native`);
+                    console.log(`[VideoProxy] Subtitle track ${this._index} (server=${this._serverCodec}) → ExoPlayer native`);
                 } else {
-                    // Other codecs: disable ExoPlayer text tracks, let web client render
-                    this._nativeRendering = false;
-                    bridge.disableSubtitleTrack(this._trackList._videoId);
-                    console.log(`[VideoProxy] Subtitle track ${this._index} (${this.codec}) → WebView DOM`);
+                    // Check for native subtitle override: if the web client is
+                    // loading a subtitle that maps to an embedded SRT track in
+                    // ExoPlayer, redirect to native rendering via SubtitleView.
+                    const proxyState = proxiedVideos.get(this._trackList._videoId);
+                    let nativeIdx = proxyState?._activeNativeSubtitleIndex ?? -1;
+
+                    // Last resort fallback: try to resolve native track by
+                    // language if no prior mechanism set the override
+                    if (nativeIdx < 0 && proxyState && this.language) {
+                        tryResolveNativeSubtitle(proxyState, this.language, this.label);
+                        nativeIdx = proxyState._activeNativeSubtitleIndex;
+                    }
+
+                    if (nativeIdx >= 0) {
+                        this._nativeRendering = true;
+                        bridge.setSubtitleTrack(this._trackList._videoId, nativeIdx);
+                        console.log(`[VideoProxy] Web track redirected → ExoPlayer group ${nativeIdx}`);
+                    } else {
+                        this._nativeRendering = false;
+                        bridge.disableSubtitleTrack(this._trackList._videoId);
+                        console.log(`[VideoProxy] Subtitle track ${this._index} → WebView DOM`);
+                    }
                 }
             } else if (value === 'disabled') {
                 this._nativeRendering = false;
@@ -398,6 +632,9 @@
                 );
                 if (!anyShowing) {
                     bridge.disableSubtitleTrack(this._trackList._videoId);
+                    // Clear native override so next selection starts fresh
+                    const ps = proxiedVideos.get(this._trackList._videoId);
+                    if (ps) ps._activeNativeSubtitleIndex = -1;
                 }
             }
 
@@ -523,8 +760,61 @@
             if (typeof this.onaddtrack === 'function') this.onaddtrack(event);
         }
 
-        _update(trackInfos) {
-            this._tracks = trackInfos.map(info => new ProxyTextTrack(this, info));
+        /**
+         * Update the track list from ExoPlayer track info.
+         * Preserves tracks created by the web client via addTextTrack().
+         *
+         * Mapping strategy: ExoPlayer only sees subtitle tracks embedded in the
+         * container (IsExternal=false). Filter server streams to non-external
+         * ones and map by position, so ExoPlayer group 0 → first embedded
+         * server stream, group 1 → second embedded server stream, etc.
+         *
+         * @param {Array} trackInfos - Track info objects from ExoPlayer
+         * @param {Array} [serverStreamIndices] - Server MediaStream.Index values
+         * @param {Array} [serverSubtitleStreams] - Subtitle stream details from PlaybackInfo
+         */
+        _update(trackInfos, serverStreamIndices, serverSubtitleStreams) {
+            const webTracks = this._tracks.filter(t => t._source === 'web');
+
+            // ExoPlayer only has tracks embedded in the container.
+            // Filter to non-external server streams for positional mapping.
+            const embeddedServerStreams = serverSubtitleStreams
+                ? serverSubtitleStreams.filter(s => !s.isExternal)
+                : [];
+
+            const exoTracks = trackInfos.map((info, i) => {
+                let serverStream = embeddedServerStreams[i];
+
+                // Fallback: if embedded-stream filtering didn't produce enough
+                // entries (e.g., IsExternal wasn't in the API response), try
+                // the original positional mapping against all streams.
+                if (!serverStream && serverStreamIndices && serverStreamIndices[i] !== undefined) {
+                    const fallbackIdx = serverStreamIndices[i];
+                    serverStream = serverSubtitleStreams
+                        ? serverSubtitleStreams.find(s => s.index === fallbackIdx)
+                        : undefined;
+                }
+
+                const serverIdx = serverStream ? serverStream.index : undefined;
+                const enriched = Object.assign({}, info, {
+                    serverStreamIndex: serverIdx,
+                    _serverCodec: serverStream ? serverStream.codec : '',
+                    _deliveryMethod: serverStream ? serverStream.deliveryMethod : '',
+                });
+                return new ProxyTextTrack(this, enriched);
+            });
+
+            this._tracks = [...exoTracks, ...webTracks];
+
+            // Fire addtrack events so the web client discovers embedded text
+            // tracks (it listens for addtrack to detect native text tracks).
+            exoTracks.forEach(track => {
+                const event = new Event('addtrack');
+                event.track = track;
+                this._listeners.addtrack.forEach(l => l(event));
+                if (typeof this.onaddtrack === 'function') this.onaddtrack(event);
+            });
+
             this._dispatchChange();
         }
 
@@ -562,6 +852,11 @@
             // Track lists
             this._audioTrackList = new ProxyAudioTrackList(videoId);
             this._textTrackList = new ProxyTextTrackList(videoId);
+
+            // When the web client downloads a subtitle that maps to an embedded
+            // SRT track in ExoPlayer, this field holds the ExoPlayer group index
+            // so the mode setter can redirect to native rendering.
+            this._activeNativeSubtitleIndex = -1;
             
             // Seeking state: guards against stale position updates from native
             // during the window between JS bridge.seek() and ExoPlayer processing.
@@ -965,6 +1260,13 @@
         const originalAddTextTrack = video.addTextTrack?.bind(video);
         video.addTextTrack = function(kind, label, language) {
             if (state.isProxied) {
+                // If fetch interception already resolved a native override, keep it.
+                // Otherwise, try to resolve one now by matching language/label
+                // against embedded SRT ExoPlayer tracks.
+                if (state._activeNativeSubtitleIndex < 0 && language) {
+                    tryResolveNativeSubtitle(state, language, label);
+                }
+
                 const trackInfo = {
                     index: state._textTrackList._tracks.length,
                     label: label || '',
@@ -974,11 +1276,13 @@
                     isDefault: false,
                     isForced: kind === 'forced',
                     isSelected: false,
+                    _source: 'web',
                 };
                 const track = new ProxyTextTrack(state._textTrackList, trackInfo);
                 track.kind = kind || 'subtitles';
                 state._textTrackList._addTrack(track);
-                console.log(`[VideoProxy] addTextTrack: kind=${kind} label=${label} lang=${language}`);
+                console.log(`[VideoProxy] addTextTrack: kind=${kind} label=${label} lang=${language}` +
+                    ` (nativeOverride=${state._activeNativeSubtitleIndex})`);
                 return track;
             }
             return originalAddTextTrack ? originalAddTextTrack(kind, label, language) : null;
@@ -1268,8 +1572,27 @@
                 }
 
                 if (tracks.subtitleTracks && proxyState._textTrackList) {
-                    proxyState._textTrackList._update(tracks.subtitleTracks);
-                    console.log(`[VideoProxy] Updated ${tracks.subtitleTracks.length} subtitle tracks for ${videoId}`);
+                    const serverSubtitleIndices = currentPlaybackContext?.subtitleStreamIndices;
+                    const serverSubtitleStreams = currentPlaybackContext?.subtitleStreams;
+                    proxyState._textTrackList._update(tracks.subtitleTracks, serverSubtitleIndices, serverSubtitleStreams);
+
+                    const embeddedCount = serverSubtitleStreams
+                        ? serverSubtitleStreams.filter(s => !s.isExternal).length : 0;
+                    const externalCount = serverSubtitleStreams
+                        ? serverSubtitleStreams.filter(s => s.isExternal).length : 0;
+                    console.log(`[VideoProxy] Updated ${tracks.subtitleTracks.length} subtitle tracks for ${videoId}` +
+                        ` (server: ${embeddedCount} embedded + ${externalCount} external` +
+                        (serverSubtitleIndices ? `, indices: [${serverSubtitleIndices.join(',')}]` : '') + ')');
+
+                    // Log individual track mappings for debugging
+                    proxyState._textTrackList._tracks.forEach(t => {
+                        if (t._source !== 'web') {
+                            console.log(`[VideoProxy]   Track ${t._index}: id=${t.id} lang=${t.language}` +
+                                ` serverCodec=${t._serverCodec} delivery=${t._deliveryMethod}`);
+                        }
+                    });
+
+                    autoEnableSubtitleTrack(proxyState);
                 }
             } catch (e) {
                 console.error('[VideoProxy] Failed to parse tracks JSON:', e);

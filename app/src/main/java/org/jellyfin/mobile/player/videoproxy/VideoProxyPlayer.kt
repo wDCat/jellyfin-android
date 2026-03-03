@@ -97,6 +97,16 @@ data class VideoProxyDebugInfo(
     val surfaceSize: String = "N/A",
     val networkBandwidth: String = "N/A",
     val networkBandwidthBps: Long = 0,
+    val subtitleTracks: List<SubtitleDebugInfo> = emptyList(),
+    val textTrackEnabled: Boolean = false,
+)
+
+data class SubtitleDebugInfo(
+    val index: Int,
+    val language: String,
+    val label: String,
+    val codec: String,
+    val isSelected: Boolean,
 )
 
 /**
@@ -477,6 +487,20 @@ class VideoProxyPlayer(
                 !videoDecoderName.contains("libdav1d", ignoreCase = true) &&
                 videoDecoderName != "N/A")
 
+        val subtitleDebug = subtitleTrackGroups.mapIndexed { index, group ->
+            val fmt = group.getTrackFormat(0)
+            SubtitleDebugInfo(
+                index = index,
+                language = fmt.language ?: "",
+                label = fmt.label ?: "",
+                codec = fmt.sampleMimeType ?: "unknown",
+                isSelected = group.isTrackSelected(0),
+            )
+        }
+
+        val textEnabled = C.TRACK_TYPE_TEXT !in
+            player.trackSelectionParameters.disabledTrackTypes
+
         return VideoProxyDebugInfo(
             videoId = videoId,
             hasExoPlayer = true,
@@ -502,6 +526,8 @@ class VideoProxyPlayer(
             surfaceSize = surfaceSizeStr,
             networkBandwidth = bandwidthStr,
             networkBandwidthBps = bandwidthEstimateBps,
+            subtitleTracks = subtitleDebug,
+            textTrackEnabled = textEnabled,
         )
     }
 

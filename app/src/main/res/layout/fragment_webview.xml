@@ -54,6 +54,17 @@
         android:layout_height="match_parent"
         android:visibility="invisible" />
 
+    <!-- Subtitle overlay container - ABOVE WebView so ExoPlayer's SubtitleView
+         is not occluded. SurfaceView uses hardware hole-punching and can live
+         below the WebView, but SubtitleView is a regular View that must be
+         above it in the z-order to be visible. -->
+    <FrameLayout
+        android:id="@+id/video_subtitle_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false" />
+
     <!-- Bitrate indicator in top-right corner - shown during buffering -->
     <androidx.appcompat.widget.AppCompatTextView
         android:id="@+id/video_proxy_bitrate_indicator"

@@ -44,6 +44,10 @@ object Constants {
     const val PREF_DOWNLOAD_LOCATION = "pref_download_location"
     const val PREF_VIDEO_PROXY_ENABLED = "pref_video_proxy_enabled"
     const val PREF_VIDEO_PROXY_HARDWARE_DECODING = "pref_video_proxy_hardware_decoding"
+    const val PREF_SUBTITLE_OFFSET = "pref_subtitle_offset"
+    const val PREF_SUBTITLE_FONT = "pref_subtitle_font"
+    const val PREF_SUBTITLE_TEXT_SIZE = "pref_subtitle_text_size"
+    const val PREF_SUBTITLE_BACKGROUND = "pref_subtitle_background"
 
     // InputManager commands
     const val PLAYBACK_MANAGER_COMMAND_PLAY = "unpause"

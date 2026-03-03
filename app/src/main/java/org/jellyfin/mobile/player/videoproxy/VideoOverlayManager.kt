@@ -3,6 +3,7 @@ package org.jellyfin.mobile.player.videoproxy
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
@@ -11,6 +12,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +49,7 @@ class VideoOverlayManager(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var overlayContainer: FrameLayout? = null
+    private var subtitleContainer: FrameLayout? = null
     private var webView: WebView? = null
 
     // Video ID -> Player instance
@@ -88,10 +91,14 @@ class VideoOverlayManager(
     val eventChannel = Channel<VideoProxyEvent>(Channel.UNLIMITED)
 
     /**
-     * Initialize the manager with the overlay container and WebView.
+     * Initialize the manager with the overlay container, subtitle container, and WebView.
+     * @param container FrameLayout below the WebView for SurfaceViews (hole-punching)
+     * @param subtitleContainer FrameLayout above the WebView for SubtitleViews
+     * @param webView The WebView instance
      */
-    fun initialize(container: FrameLayout, webView: WebView) {
+    fun initialize(container: FrameLayout, subtitleContainer: FrameLayout, webView: WebView) {
         this.overlayContainer = container
+        this.subtitleContainer = subtitleContainer
         this.webView = webView
         
         Timber.d("VideoOverlayManager initialized")
@@ -189,10 +196,10 @@ class VideoOverlayManager(
         surfaceViews[videoId] = surfaceView
         player.setSurfaceView(surfaceView)
 
-        // Create subtitle view on top of the texture view.
-        // Used for natively-rendered tracks (e.g., SubRip).
-        // For non-native codecs, ExoPlayer's text tracks remain disabled
-        // and this view stays empty — the web client renders via DOM.
+        // Create subtitle view in a separate container ABOVE the WebView.
+        // SubtitleView is a regular View (not hole-punching like SurfaceView),
+        // so it must be above the WebView in the z-order to be visible.
+        val subContainer = subtitleContainer ?: container
         val subtitleView = SubtitleView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -201,8 +208,13 @@ class VideoOverlayManager(
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             }
             visibility = View.GONE
+            // A transparent background drawable is needed so this View is excluded
+            // from SurfaceView's transparent region. Without it the compositor
+            // skips alpha blending here, making semi-transparent backgrounds opaque.
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
         }
-        container.addView(subtitleView)
+        applyDefaultSubtitleStyle(subtitleView)
+        subContainer.addView(subtitleView)
         subtitleViews[videoId] = subtitleView
         player.setSubtitleView(subtitleView)
 
@@ -385,16 +397,18 @@ class VideoOverlayManager(
     }
 
     /**
-     * Apply bounds to a SubtitleView, using the same coordinate conversion as SurfaceView.
+     * Apply bounds to a SubtitleView, using the same coordinate conversion as SurfaceView
+     * but relative to the subtitle container (which is above the WebView).
      */
     private fun applyBoundsToSubtitleView(subtitleView: SubtitleView, bounds: VideoBounds) {
         val webView = webView ?: return
+        val subContainer = subtitleContainer ?: overlayContainer ?: return
 
         val webViewLocation = IntArray(2)
         webView.getLocationOnScreen(webViewLocation)
 
         val containerLocation = IntArray(2)
-        overlayContainer?.getLocationOnScreen(containerLocation)
+        subContainer.getLocationOnScreen(containerLocation)
 
         val density = context.resources.displayMetrics.density
 
@@ -549,6 +563,41 @@ class VideoOverlayManager(
         val surfaceView = surfaceViews[videoId] ?: return
         val size = videoNativeSizes[videoId] ?: return
         surfaceView.post { applyAspectRatio(surfaceView, size) }
+    }
+
+    /**
+     * Apply subtitle style from app preferences: font, text size, background, offset.
+     */
+    private fun applyDefaultSubtitleStyle(subtitleView: SubtitleView) {
+        subtitleView.setApplyEmbeddedStyles(false)
+        subtitleView.setApplyEmbeddedFontSizes(false)
+
+        val typeface = when (appPreferences.subtitleFont) {
+            "sans_serif" -> android.graphics.Typeface.SANS_SERIF
+            "serif" -> android.graphics.Typeface.SERIF
+            "monospace" -> android.graphics.Typeface.MONOSPACE
+            else -> null
+        }
+
+        val bgColor = when (appPreferences.subtitleBackground) {
+            "semi" -> android.graphics.Color.argb(128, 0, 0, 0)
+            "opaque" -> android.graphics.Color.BLACK
+            else -> android.graphics.Color.TRANSPARENT
+        }
+
+        val style = CaptionStyleCompat(
+            android.graphics.Color.WHITE,
+            bgColor,
+            android.graphics.Color.TRANSPARENT,
+            CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
+            android.graphics.Color.BLACK,
+            typeface,
+        )
+        subtitleView.setStyle(style)
+        subtitleView.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, appPreferences.subtitleTextSize.toFloat())
+
+        val bottomPadding = (appPreferences.subtitleOffset * context.resources.displayMetrics.density).toInt()
+        subtitleView.setPadding(0, 0, 0, bottomPadding)
     }
 
     override fun onStateChanged(videoId: String, state: VideoProxyPlayerState) {
@@ -841,6 +890,18 @@ class VideoOverlayManager(
             appendLine("Format: ${info.audioFormat}")
             appendLine("Bitrate: ${info.audioBitrate}")
             appendLine("Volume: ${String.format("%.0f%%", info.volume * 100)}")
+            appendLine("─── Subtitles ───")
+            appendLine("Text track: ${if (info.textTrackEnabled) "enabled" else "disabled"}")
+            if (info.subtitleTracks.isEmpty()) {
+                appendLine("Tracks: (none)")
+            } else {
+                info.subtitleTracks.forEach { sub ->
+                    val sel = if (sub.isSelected) "▸" else " "
+                    val lang = sub.language.ifEmpty { "?" }
+                    val label = sub.label.ifEmpty { "no label" }
+                    appendLine("$sel [$lang] $label (${sub.codec})")
+                }
+            }
             appendLine("─── Network ───")
             appendLine("Bandwidth: ${info.networkBandwidth}")
             appendLine("─── Playback ───")
@@ -900,6 +961,7 @@ class VideoOverlayManager(
         videoVisibility.clear()
         videoNativeSizes.clear()
         overlayContainer = null
+        subtitleContainer = null
         webView = null
         debugInfoView = null
         debugContainerView = null

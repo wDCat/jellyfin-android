@@ -14,6 +14,40 @@ class AppPreferences(context: Context) {
     private val sharedPreferences: SharedPreferences =
         context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
 
+    init {
+        migrateSubtitlePreferences()
+    }
+
+    @Suppress("SwallowedException")
+    private fun migrateSubtitlePreferences() {
+        try {
+            sharedPreferences.getInt(Constants.PREF_SUBTITLE_OFFSET, 0)
+        } catch (_: ClassCastException) {
+            val old = sharedPreferences.getString(Constants.PREF_SUBTITLE_OFFSET, null)
+            sharedPreferences.edit {
+                remove(Constants.PREF_SUBTITLE_OFFSET)
+                putInt(Constants.PREF_SUBTITLE_OFFSET, old?.toIntOrNull() ?: DEFAULT_SUBTITLE_OFFSET)
+            }
+        }
+        try {
+            sharedPreferences.getInt(Constants.PREF_SUBTITLE_TEXT_SIZE, 0)
+        } catch (_: ClassCastException) {
+            val old = sharedPreferences.getString(Constants.PREF_SUBTITLE_TEXT_SIZE, null)
+            val migrated = when (old) {
+                "smaller" -> 13
+                "small" -> 15
+                "large" -> 22
+                "larger" -> 25
+                "extra_large" -> 31
+                else -> DEFAULT_SUBTITLE_TEXT_SIZE
+            }
+            sharedPreferences.edit {
+                remove(Constants.PREF_SUBTITLE_TEXT_SIZE)
+                putInt(Constants.PREF_SUBTITLE_TEXT_SIZE, migrated)
+            }
+        }
+    }
+
     var currentServerId: Long?
         get() = sharedPreferences.getLong(Constants.PREF_SERVER_ID, -1).takeIf { it >= 0 }
         set(value) {
@@ -130,4 +164,21 @@ class AppPreferences(context: Context) {
 
     val videoProxyHardwareDecoding: Boolean
         get() = sharedPreferences.getBoolean(Constants.PREF_VIDEO_PROXY_HARDWARE_DECODING, true)
+
+    val subtitleOffset: Int
+        get() = sharedPreferences.getInt(Constants.PREF_SUBTITLE_OFFSET, DEFAULT_SUBTITLE_OFFSET)
+
+    val subtitleFont: String
+        get() = sharedPreferences.getString(Constants.PREF_SUBTITLE_FONT, "default") ?: "default"
+
+    val subtitleTextSize: Int
+        get() = sharedPreferences.getInt(Constants.PREF_SUBTITLE_TEXT_SIZE, DEFAULT_SUBTITLE_TEXT_SIZE)
+
+    val subtitleBackground: String
+        get() = sharedPreferences.getString(Constants.PREF_SUBTITLE_BACKGROUND, "transparent") ?: "transparent"
+
+    companion object {
+        const val DEFAULT_SUBTITLE_OFFSET = 24
+        const val DEFAULT_SUBTITLE_TEXT_SIZE = 18
+    }
 }
