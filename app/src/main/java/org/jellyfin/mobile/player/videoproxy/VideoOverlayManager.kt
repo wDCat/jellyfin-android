@@ -552,14 +552,17 @@ class VideoOverlayManager(
     }
 
     override fun onStateChanged(videoId: String, state: VideoProxyPlayerState) {
-        // Notify JavaScript about state change
+        // Notify JavaScript about state change.
+        // seeked=true tells JS to clear its _seeking guard and fire the 'seeked'
+        // event without relying on a fixed timeout.
         val stateJson = """
             {
                 "currentTime": ${state.currentTimeMs},
                 "duration": ${state.durationMs},
                 "paused": ${state.paused},
                 "ended": ${state.ended},
-                "readyState": ${state.readyState}
+                "readyState": ${state.readyState},
+                "seeked": ${state.seeked}
             }
         """.trimIndent()
         

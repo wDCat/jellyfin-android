@@ -568,6 +568,12 @@
             this._seeking = false;
             this._seekStartTime = 0;
 
+            // Post-seek guard: timestamp when the last seek completed (seeked=true
+            // received). For a short window after this, reject position updates that
+            // jump to 0 — ExoPlayer may transiently report position 0 before its
+            // internal tracker stabilizes, especially for large files over slow networks.
+            this._seekCompletedAt = 0;
+
             // Position tracking
             this._bounds = { x: 0, y: 0, width: 0, height: 0 };
             this._visible = true;
@@ -1099,18 +1105,34 @@
 
             if (state.currentTime !== undefined) {
                 if (proxyState._seeking) {
-                    // During seeking, don't overwrite _currentTime with stale
-                    // native positions. Accept the native time once the race
-                    // condition window has passed (300ms covers the event channel
-                    // + ExoPlayer processing latency).
-                    const elapsed = Date.now() - proxyState._seekStartTime;
-                    if (elapsed > 300) {
+                    // While seeking, keep showing the seek target (_currentTime set
+                    // by the JS setter). Only accept the native position once ExoPlayer
+                    // explicitly signals completion via seeked=true — this avoids the
+                    // progress bar flashing to 00:00 if ExoPlayer transiently reports
+                    // position 0 during seek processing.
+                    if (state.seeked) {
                         proxyState._seeking = false;
-                        proxyState._currentTime = state.currentTime / 1000;
+                        proxyState._seekCompletedAt = Date.now();
                         proxyState.dispatchEvent('seeked');
                     }
                 } else {
-                    proxyState._currentTime = state.currentTime / 1000;
+                    const newTime = state.currentTime / 1000;
+                    // Post-seek guard: ExoPlayer may transiently report position 0
+                    // in the first few state updates after seek completes. If we just
+                    // finished a seek to a non-zero position, reject 0-position updates
+                    // for a short grace period to avoid the progress bar flashing.
+                    if (proxyState._seekCompletedAt > 0) {
+                        const elapsed = Date.now() - proxyState._seekCompletedAt;
+                        if (elapsed < 1500 && newTime < 1 && proxyState._currentTime > 5) {
+                            console.log('[VideoProxy] Rejected transient zero position ' +
+                                elapsed + 'ms after seek (currentTime=' + proxyState._currentTime + ')');
+                        } else {
+                            proxyState._currentTime = newTime;
+                            proxyState._seekCompletedAt = 0;
+                        }
+                    } else {
+                        proxyState._currentTime = newTime;
+                    }
                 }
                 proxyState.dispatchEvent('timeupdate');
                 proxyState._textTrackList._checkCueChanges();
@@ -1131,12 +1153,12 @@
             if (state.readyState !== undefined) {
                 const prevReadyState = proxyState._readyState;
                 proxyState._readyState = state.readyState;
-                // Clear seeking when readyState recovers to READY after buffering
+                // Fallback: if native somehow didn't send seeked=true but the player
+                // transitioned BUFFERING→READY, clear _seeking via the readyState
+                // transition. Set the post-seek guard to reject transient 0 positions.
                 if (proxyState._seeking && prevReadyState <= 2 && state.readyState >= 4) {
                     proxyState._seeking = false;
-                    if (state.currentTime !== undefined) {
-                        proxyState._currentTime = state.currentTime / 1000;
-                    }
+                    proxyState._seekCompletedAt = Date.now();
                     proxyState.dispatchEvent('seeked');
                 }
                 if (state.readyState >= 1) {
@@ -1404,19 +1426,38 @@
 
             if (!itemsContainer) return;
 
-            // Heuristic: check if this looks like a video player settings menu
-            // by looking for playback-related keywords in button text
+            // Heuristic: check if this looks like a video player settings menu.
+            // Primary condition: there is at least one active proxied video — this
+            // is language-agnostic and works in all locales. The text-keyword check
+            // is retained as an additional signal for extra safety in edge cases
+            // where a menu might open while a video is active but the menu is
+            // unrelated to the player.
             const buttons = itemsContainer.querySelectorAll('button, .listItem, [data-action]');
             if (buttons.length === 0) return;
 
-            // Only inject into the top-level OSD settings menu, which contains multiple
-            // categories of options simultaneously (quality, audio, subtitle, speed, etc.).
-            // Sub-menus (audio track list, quality list, etc.) only contain one category,
-            // so requiring at least 2 keyword matches filters them out.
+            const hasActiveVideo = proxiedVideos.size > 0;
             const menuText = itemsContainer.textContent.toLowerCase();
-            const settingsKeywords = ['quality', 'speed', 'audio', 'subtitle', 'playback', 'stats', 'stream'];
-            const matchCount = settingsKeywords.filter(kw => menuText.includes(kw)).length;
-            if (matchCount < 2) return;
+            // English keywords (for non-proxied scenarios / extra confidence)
+            const hasPlayerKeyword = menuText.includes('quality') ||
+                menuText.includes('speed') ||
+                menuText.includes('audio') ||
+                menuText.includes('subtitle') ||
+                menuText.includes('playback') ||
+                menuText.includes('stats') ||
+                menuText.includes('stream');
+            // CSS class check: OSD bottom bar is in DOM while the player is visible.
+            // The video OSD may be hidden by the dialog, so also check the video
+            // container itself.
+            const hasOsdElement = !!document.querySelector(
+                '.videoOsdBottom, [class*="videoOsd"], .videoPlayerContainer, [class*="videoPlayer"]'
+            );
+
+            // Inject when:
+            // (a) There is an active proxied video (language-agnostic), OR
+            // (b) English keyword matched (legacy fallback for non-proxied contexts)
+            const isPlayerMenu = hasActiveVideo || hasPlayerKeyword || hasOsdElement;
+
+            if (!isPlayerMenu) return;
 
             // Add debug menu item at the end of the menu
             const menuItem = createMenuItem(itemsContainer);

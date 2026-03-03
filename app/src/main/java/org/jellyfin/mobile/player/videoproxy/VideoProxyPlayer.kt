@@ -47,6 +47,12 @@ data class VideoProxyPlayerState(
     val paused: Boolean = true,
     val ended: Boolean = false,
     val readyState: Int = 0,
+    /**
+     * True in the exact state update that signals seek completion.
+     * JS uses this to clear its _seeking guard and fire the 'seeked' event
+     * without relying on a fixed timeout or readyState transitions.
+     */
+    val seeked: Boolean = false,
 )
 
 /**
@@ -105,6 +111,15 @@ class VideoProxyPlayer(
     private val callback: VideoProxyPlayerCallback,
 ) : Player.Listener {
 
+    companion object {
+        /**
+         * Number of updateProgress() cycles to skip after seek completion (~750ms at 250ms interval).
+         * Gives ExoPlayer's internal position tracker time to stabilize before we
+         * poll currentPosition, preventing transient 0-position reports.
+         */
+        private const val POST_SEEK_SKIP_CYCLES = 3
+    }
+
     private var player: ExoPlayer? = null
     private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
@@ -120,6 +135,11 @@ class VideoProxyPlayer(
     // Seeking state: suppresses stale position updates from updateProgress()
     // between the JS bridge.seek() call and ExoPlayer completing the seek.
     private var isSeeking = false
+
+    // After seek completes, ExoPlayer.currentPosition may transiently return 0
+    // (or a stale value) before the internal position tracker fully syncs.
+    // Skip a few updateProgress() cycles to let it stabilize.
+    private var postSeekSkipCount = 0
 
     // Debug info tracking
     private var videoDecoderName: String = "N/A"
@@ -246,6 +266,8 @@ class VideoProxyPlayer(
         
         Timber.d("Setting source for $videoId: $url")
         currentSourceUrl = url
+        isSeeking = false
+        postSeekSkipCount = 0
         
         val mediaItem = MediaItem.Builder()
             .setUri(Uri.parse(url))
@@ -260,6 +282,7 @@ class VideoProxyPlayer(
             paused = true,
             ended = false,
             readyState = 0,
+            seeked = false,
         )
     }
 
@@ -286,7 +309,10 @@ class VideoProxyPlayer(
      */
     fun seekTo(positionMs: Long) {
         isSeeking = true
-        _currentState = _currentState.copy(currentTimeMs = positionMs)
+        postSeekSkipCount = 0
+        // Store seek target in currentTimeMs so JS shows the target position
+        // immediately. seeked=false until ExoPlayer confirms completion.
+        _currentState = _currentState.copy(currentTimeMs = positionMs, seeked = false)
         notifyStateChanged()
         player?.seekTo(positionMs)
     }
@@ -551,13 +577,14 @@ class VideoProxyPlayer(
         if (playbackState == Player.STATE_READY) {
             if (isSeeking) {
                 isSeeking = false
-                _currentState = _currentState.copy(
-                    currentTimeMs = player?.currentPosition ?: _currentState.currentTimeMs,
-                )
+                // Skip a few updateProgress() cycles so ExoPlayer's internal position
+                // tracker has time to stabilize. player.currentPosition may transiently
+                // return 0 right after STATE_READY, causing the progress bar to flash.
+                postSeekSkipCount = POST_SEEK_SKIP_CYCLES
+                _currentState = _currentState.copy(seeked = true, durationMs = getDuration())
+            } else {
+                _currentState = _currentState.copy(durationMs = getDuration())
             }
-            _currentState = _currentState.copy(
-                durationMs = getDuration(),
-            )
         }
 
         notifyStateChanged()
@@ -574,8 +601,44 @@ class VideoProxyPlayer(
         newPosition: Player.PositionInfo,
         reason: Int,
     ) {
-        _currentState = _currentState.copy(currentTimeMs = newPosition.positionMs)
-        notifyStateChanged()
+        if (reason == Player.DISCONTINUITY_REASON_SEEK && isSeeking) {
+            // For in-buffer seeks the player stays in STATE_READY and
+            // onPlaybackStateChanged(STATE_READY) will NOT re-fire, so isSeeking
+            // would never be cleared via that path. Detect this case here: if the
+            // player is already STATE_READY when the seek discontinuity fires, the
+            // seek was served entirely from the buffer — clear isSeeking and signal
+            // JS immediately.
+            if (player?.playbackState == Player.STATE_READY) {
+                isSeeking = false
+                postSeekSkipCount = POST_SEEK_SKIP_CYCLES
+                _currentState = _currentState.copy(
+                    currentTimeMs = newPosition.positionMs,
+                    seeked = true,
+                )
+                notifyStateChanged()
+                return
+            }
+        }
+        // For SEEK discontinuities that go through buffering, or for any other
+        // discontinuity reason: only update position if we're still actively seeking
+        // (the position should be the seek target). Post-seek discontinuities (e.g.,
+        // INTERNAL adjustments) are silently absorbed during the grace period to
+        // avoid transient zero positions reaching JS.
+        if (isSeeking) {
+            _currentState = _currentState.copy(
+                currentTimeMs = newPosition.positionMs,
+                seeked = false,
+            )
+            notifyStateChanged()
+        } else if (postSeekSkipCount <= 0) {
+            _currentState = _currentState.copy(
+                currentTimeMs = newPosition.positionMs,
+                seeked = false,
+            )
+            notifyStateChanged()
+        } else {
+            Timber.d("Suppressed post-seek position discontinuity: ${newPosition.positionMs} ms (grace period)")
+        }
     }
 
     override fun onPlayerError(error: PlaybackException) {
@@ -651,8 +714,15 @@ class VideoProxyPlayer(
     fun updateProgress() {
         val player = player ?: return
         if (isSeeking) return
+        if (postSeekSkipCount > 0) {
+            postSeekSkipCount--
+            return
+        }
         if (player.playbackState == Player.STATE_READY && player.isPlaying) {
-            _currentState = _currentState.copy(currentTimeMs = player.currentPosition)
+            _currentState = _currentState.copy(
+                currentTimeMs = player.currentPosition,
+                seeked = false,
+            )
             notifyStateChanged()
         }
     }
