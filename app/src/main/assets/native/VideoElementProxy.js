@@ -1435,27 +1435,12 @@
             const buttons = itemsContainer.querySelectorAll('button, .listItem, [data-action]');
             if (buttons.length === 0) return;
 
-            const hasActiveVideo = proxiedVideos.size > 0;
             const menuText = itemsContainer.textContent.toLowerCase();
-            // English keywords (for non-proxied scenarios / extra confidence)
-            const hasPlayerKeyword = menuText.includes('quality') ||
-                menuText.includes('speed') ||
-                menuText.includes('audio') ||
-                menuText.includes('subtitle') ||
-                menuText.includes('playback') ||
-                menuText.includes('stats') ||
-                menuText.includes('stream');
-            // CSS class check: OSD bottom bar is in DOM while the player is visible.
-            // The video OSD may be hidden by the dialog, so also check the video
-            // container itself.
-            const hasOsdElement = !!document.querySelector(
-                '.videoOsdBottom, [class*="videoOsd"], .videoPlayerContainer, [class*="videoPlayer"]'
-            );
-
-            // Inject when:
-            // (a) There is an active proxied video (language-agnostic), OR
-            // (b) English keyword matched (legacy fallback for non-proxied contexts)
-            const isPlayerMenu = hasActiveVideo || hasPlayerKeyword || hasOsdElement;
+            // optimize later
+            const isPlayerMenu = menuText.includes('quality') ||
+                menuText.includes('质量') ||
+                // Also check if we're in video OSD context
+                !!document.querySelector('.videoOsdBottom, [class*="videoOsd"]');
 
             if (!isPlayerMenu) return;
 
