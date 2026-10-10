@@ -2,9 +2,11 @@ name: App / Build
 
 on:
   push:
-    branches:
-      - 'latest'
-  pull_request:
+    tags:
+      - 'v*'
+
+env:
+  JELLYFIN_VERSION: ${{ github.ref_name }}
 
 permissions:
   contents: read

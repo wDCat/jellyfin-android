@@ -2,10 +2,11 @@ name: App / Lint
 
 on:
   push:
-    branches:
-      - master
-      - release-*
-  pull_request:
+    tags:
+      - 'v*'
+
+env:
+  JELLYFIN_VERSION: ${{ github.ref_name }}
 
 permissions:
   contents: read

@@ -77,6 +77,19 @@ which can still be found [in the archives](https://github.com/jellyfin-archive/j
    ./gradlew assembleDebug
    ```
 
+### Fork release versioning
+
+GitHub Actions runs only when a version tag (`v*`) is pushed.
+Fork release tags use `v<upstream-base-version>-<release-number>`, for example `v2.6.3-1`.
+The release number starts at 1 and increases for each new tag based on the same upstream version;
+it starts over at 1 when the upstream base version changes.
+
+CI passes the tag as `JELLYFIN_VERSION`, so the APK filename and embedded `versionName`
+use the same version (without the leading `v` in `versionName`).
+Local builds use `jellyfin.version` in `gradle.properties`; update it when preparing a release.
+For `v2.6.3-1`, the embedded version is `2.6.3-1`, `versionCode` is `2060301`,
+and a debug APK is named `jellyfin-android-v2.6.3-1-libre-debug.apk`.
+
 ### Deploy to device/emulator
 
    ```sh
