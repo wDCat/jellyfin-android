@@ -31,6 +31,7 @@ android {
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
+        applicationId = "org.jellyfin.mobile.custom"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionName = project.getVersionName()
@@ -165,11 +166,16 @@ dependencies {
         }
     }
     implementation(libs.bundles.coil)
+    implementation(libs.cronet.embedded)
 
     // Media
     implementation(libs.androidx.media)
     implementation(libs.androidx.mediarouter)
-    implementation(libs.bundles.androidx.media3)
+    implementation(libs.bundles.androidx.media3) {
+        // Use the bundled Cronet engine instead of the Play Services provider.
+        exclude("com.google.android.gms", "play-services-cronet")
+    }
+    implementation(libs.androidx.media3.datasource.cronet)
     proprietaryImplementation(libs.androidx.media3.cast)
     proprietaryImplementation(libs.bundles.playservices)
 

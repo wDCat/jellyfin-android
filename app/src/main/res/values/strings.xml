@@ -119,6 +119,10 @@
     <string name="network_buffer_large_description">Larger buffer, may help on moderate or variable connections</string>
     <string name="network_buffer_extra_large">Extra large</string>
     <string name="network_buffer_extra_large_description">Maximum buffer, intended for slow or satellite connections</string>
+    <string name="pref_video_proxy_enabled_title">Enhanced video decoding</string>
+    <string name="pref_video_proxy_enabled_summary">Use ExoPlayer as the underlying video decoder for web player, providing better format support while keeping web UI controls</string>
+    <string name="pref_video_proxy_hardware_decoding_title">Prefer hardware decoding</string>
+    <string name="pref_video_proxy_hardware_decoding_summary">Use hardware decoder when available, fall back to software decoder (FFmpeg) when disabled or unavailable</string>
 
     <string name="external_player_app">External player app</string>
     <string name="external_player_mpv">MPV Player</string>
@@ -136,6 +140,18 @@
 
     <string name="pref_subtitle_style">Customize subtitle style</string>
     <string name="pref_subtitle_style_summary">You can change the subtitle style in the Android settings</string>
+
+    <string name="pref_subtitle_offset_title">Subtitle offset</string>
+    <string name="pref_subtitle_font_title">Subtitle font</string>
+    <string name="pref_subtitle_font_default">Default</string>
+    <string name="pref_subtitle_font_sans_serif">Sans Serif</string>
+    <string name="pref_subtitle_font_serif">Serif</string>
+    <string name="pref_subtitle_font_monospace">Monospace</string>
+    <string name="pref_subtitle_text_size_title">Subtitle text size</string>
+    <string name="pref_subtitle_background_title">Subtitle background</string>
+    <string name="pref_subtitle_background_transparent">Transparent</string>
+    <string name="pref_subtitle_background_semi">Semi-transparent</string>
+    <string name="pref_subtitle_background_opaque">Opaque</string>
 
     <string name="pref_category_downloads">Downloads</string>
     <string name="pref_download_location">Download location</string>

@@ -7,7 +7,9 @@ import kotlinx.coroutines.channels.ChannelIterator
  * Allows to call functions within the webapp
  */
 class WebappFunctionChannel {
-    private val internalChannel = Channel<String>()
+    // Player callbacks include one-shot events (first frame, errors, tracks).
+    // Keep them until the WebView consumer can receive them.
+    private val internalChannel = Channel<String>(Channel.UNLIMITED)
 
     operator fun iterator(): ChannelIterator<String> = internalChannel.iterator()
 

@@ -14,6 +14,7 @@ import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -25,6 +26,8 @@ import androidx.work.WorkManager
 import coil3.ImageLoader
 import kotlinx.coroutines.channels.Channel
 import okhttp3.OkHttpClient
+import org.chromium.net.CronetEngine
+import org.chromium.net.CronetProvider
 import org.jellyfin.mobile.MainViewModel
 import org.jellyfin.mobile.bridge.MediaSegments
 import org.jellyfin.mobile.bridge.NativePlayer
@@ -40,6 +43,8 @@ import org.jellyfin.mobile.player.mediasegments.MediaSegmentRepository
 import org.jellyfin.mobile.player.qualityoptions.QualityOptionsProvider
 import org.jellyfin.mobile.player.source.MediaSourceResolver
 import org.jellyfin.mobile.player.ui.PlayerFragment
+import org.jellyfin.mobile.player.videoproxy.VideoProxyBridge
+import org.jellyfin.mobile.player.videoproxy.VideoProxyEvent
 import org.jellyfin.mobile.setup.ConnectionHelper
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.PermissionRequestHelper
@@ -56,8 +61,11 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import java.io.File
+import java.util.concurrent.Executors
 
 const val PLAYER_EVENT_CHANNEL = "PlayerEventChannel"
+const val VIDEO_PROXY_EVENT_CHANNEL = "VideoProxyEventChannel"
+private const val HTTP_CACHE_SIZE: Long = 16 * 1024 * 1024
 private const val TS_SEARCH_PACKETS = 1800
 
 val applicationModule = module {
@@ -67,6 +75,7 @@ val applicationModule = module {
     single { PermissionRequestHelper() }
     single { RemoteVolumeProvider(get()) }
     single(named(PLAYER_EVENT_CHANNEL)) { Channel<PlayerEvent>() }
+    single(named(VIDEO_PROXY_EVENT_CHANNEL)) { Channel<VideoProxyEvent>(Channel.UNLIMITED) }
     factory { WorkManager.getInstance(get()) }
 
     // Controllers
@@ -78,6 +87,7 @@ val applicationModule = module {
 
     // Bridge interfaces
     single { NativePlayer(get(), get(), get(named(PLAYER_EVENT_CHANNEL))) }
+    single { VideoProxyBridge(get(), get(named(VIDEO_PROXY_EVENT_CHANNEL))) }
     single { MediaSegments(get()) }
 
     // ViewModels
@@ -115,8 +125,24 @@ val applicationModule = module {
         val context: Context = get()
         val apiClient: ApiClient = get()
 
-        val baseDataSourceFactory = DefaultHttpDataSource.Factory().apply {
-            setUserAgent(Util.getUserAgent(context, Constants.APP_INFO_NAME))
+        val provider = CronetProvider.getAllProviders(context).firstOrNull { provider: CronetProvider ->
+            (provider.name == CronetProvider.PROVIDER_NAME_APP_PACKAGED) && provider.isEnabled
+        }
+
+        val baseDataSourceFactory = if (provider != null) {
+            val cronetEngine = provider.createBuilder()
+                .enableHttp2(true)
+                .enableQuic(true)
+                .enableBrotli(true)
+                .enableHttpCache(CronetEngine.Builder.HTTP_CACHE_IN_MEMORY, HTTP_CACHE_SIZE)
+                .build()
+            CronetDataSource.Factory(cronetEngine, Executors.newCachedThreadPool()).apply {
+                setUserAgent(Util.getUserAgent(context, Constants.APP_INFO_NAME))
+            }
+        } else {
+            DefaultHttpDataSource.Factory().apply {
+                setUserAgent(Util.getUserAgent(context, Constants.APP_INFO_NAME))
+            }
         }
 
         val dataSourceFactory = DefaultDataSource.Factory(context, baseDataSourceFactory)

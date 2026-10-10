@@ -26,11 +26,18 @@ import kotlinx.coroutines.launch
 import org.jellyfin.mobile.MainViewModel
 import org.jellyfin.mobile.R
 import org.jellyfin.mobile.app.AppPreferences
+import org.jellyfin.mobile.app.VIDEO_PROXY_EVENT_CHANNEL
 import org.jellyfin.mobile.bridge.ExternalPlayer
 import org.jellyfin.mobile.bridge.MediaSegments
 import org.jellyfin.mobile.bridge.NativeInterface
 import org.jellyfin.mobile.bridge.NativePlayer
+import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
+import org.jellyfin.mobile.player.source.MediaSourceResolver
+import org.jellyfin.mobile.player.videoproxy.VideoOverlayManager
+import org.jellyfin.mobile.player.videoproxy.VideoProxyBridge
+import org.jellyfin.mobile.player.videoproxy.VideoProxyEvent
 import org.jellyfin.mobile.data.entity.ServerEntity
+import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.mobile.databinding.FragmentWebviewBinding
 import org.jellyfin.mobile.setup.ConnectFragment
 import org.jellyfin.mobile.utils.AndroidVersion
@@ -46,8 +53,10 @@ import org.jellyfin.mobile.utils.fadeIn
 import org.jellyfin.mobile.utils.isOutdated
 import org.jellyfin.mobile.utils.requestNoBatteryOptimizations
 import org.jellyfin.mobile.utils.runOnUiThread
+import kotlinx.coroutines.channels.Channel
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
+import org.koin.core.qualifier.named
 
 class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClient.FileChooserListener {
     val appPreferences: AppPreferences by inject()
@@ -56,8 +65,14 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     private lateinit var assetsPathHandler: AssetsPathHandler
     private lateinit var jellyfinWebViewClient: JellyfinWebViewClient
     private val nativePlayer: NativePlayer by inject()
+    private val videoProxyBridge: VideoProxyBridge by inject()
+    private val videoProxyEventChannel: Channel<VideoProxyEvent> by inject(named(VIDEO_PROXY_EVENT_CHANNEL))
+    private val mediaSourceResolver: MediaSourceResolver by inject()
+    private val apiClient: ApiClient by inject()
+    private val deviceProfileBuilder: DeviceProfileBuilder by inject()
     private lateinit var externalPlayer: ExternalPlayer
     private val mediaSegments: MediaSegments by inject()
+    private var videoOverlayManager: VideoOverlayManager? = null
 
     lateinit var server: ServerEntity
         private set
@@ -121,7 +136,44 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val webView = webViewBinding!!.webView
+        val binding = webViewBinding!!
+        val webView = binding.webView
+
+        // Initialize video overlay manager if video proxy is enabled
+        if (appPreferences.videoProxyEnabled) {
+            // Enable per-pixel alpha on the window surface so that semi-transparent
+            // subtitle backgrounds composite correctly over the SurfaceView video.
+            // Without this the window surface is OPAQUE and alpha is discarded,
+            // making semi-transparent backgrounds appear solid black.
+            activity?.window?.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+
+            videoOverlayManager = VideoOverlayManager(
+                context = requireContext(),
+                appPreferences = appPreferences,
+                webappFunctionChannel = webappFunctionChannel,
+                coroutineScope = viewLifecycleOwner.lifecycleScope,
+                mediaSourceResolver = mediaSourceResolver,
+                apiClient = apiClient,
+                deviceProfileBuilder = deviceProfileBuilder,
+            ).also { manager ->
+                manager.initialize(binding.videoOverlayContainer, binding.videoSubtitleContainer, webView)
+                manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)
+                manager.setBitrateIndicatorView(
+                    binding.videoProxyBitrateIndicator,
+                    binding.videoProxyBitrateContainer,
+                )
+                binding.videoProxyDebugClose.setOnClickListener {
+                    manager.hideDebugInfo()
+                }
+                
+                // Forward events from bridge to manager
+                viewLifecycleOwner.lifecycleScope.launch {
+                    for (event in videoProxyEventChannel) {
+                        manager.eventChannel.trySend(event)
+                    }
+                }
+            }
+        }
 
         // Apply window insets
         webView.applyWindowInsetsAsMargins()
@@ -161,7 +213,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         }
 
         // Process JS functions called from other components (e.g. the PlayerActivity)
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             for (function in webappFunctionChannel) {
                 webView.evaluateJavascript(function, null)
             }
@@ -172,8 +224,15 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         return connected && webappFunctionChannel.goBack()
     }
 
+    override fun onPause() {
+        super.onPause()
+        videoOverlayManager?.pauseAll()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
+        videoOverlayManager?.release()
+        videoOverlayManager = null
         webViewBinding = null
     }
 
@@ -189,6 +248,13 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         addJavascriptInterface(nativePlayer, "NativePlayer")
         addJavascriptInterface(externalPlayer, "ExternalPlayer")
         addJavascriptInterface(mediaSegments, "MediaSegments")
+        addJavascriptInterface(videoProxyBridge, "VideoProxyBridge")
+
+        // When video proxy is enabled, set WebView background transparent
+        // so the native video layer (SurfaceView) can show through
+        if (appPreferences.videoProxyEnabled) {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
 
         loadUrl("${server.hostname.trimEnd('/')}/")
         postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)

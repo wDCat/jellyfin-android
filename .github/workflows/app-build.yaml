@@ -2,9 +2,11 @@ name: App / Build
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
+    tags:
+      - 'v*'
+
+env:
+  JELLYFIN_VERSION: ${{ github.ref_name }}
 
 permissions:
   contents: read
@@ -23,14 +25,46 @@ jobs:
           java-version-file: .tools-versions
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
-      - name: Assemble debug APKs
-        run: ./gradlew assembleDebug
-      - name: Create publish bundle
-        run: mkdir -p build/gh-app-publish/; find app/build/ -iname "*.apk" -exec mv "{}" build/gh-app-publish/ \;
-      - name: Upload artifacts
+      - name: Assemble all APKs
+        run: ./gradlew assemble
+      - name: Sign libre release APK
+        id: sign-libre
+        uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # tag=v1
+        env:
+          BUILD_TOOLS_VERSION: "36.0.0"
+        with:
+          releaseDirectory: app/build/outputs/apk/libre/release
+          signingKeyBase64: ${{ secrets.KEYSTORE }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+      - name: Sign proprietary release APK
+        id: sign-proprietary
+        uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # tag=v1
+        env:
+          BUILD_TOOLS_VERSION: "36.0.0"
+        with:
+          releaseDirectory: app/build/outputs/apk/proprietary/release
+          signingKeyBase64: ${{ secrets.KEYSTORE }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+      - name: Collect signed release APKs
+        run: |
+          mkdir -p build/signed-release
+          mv ${{ steps.sign-libre.outputs.signedReleaseFile }} build/signed-release/
+          mv ${{ steps.sign-proprietary.outputs.signedReleaseFile }} build/signed-release/
+      - name: Upload debug APKs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: build-artifacts
-          retention-days: 14
+          name: debug-apks
+          retention-days: 30
           if-no-files-found: error
-          path: build/gh-app-publish/
+          path: app/build/outputs/apk/*/debug/*.apk
+      - name: Upload signed release APKs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-apks
+          retention-days: 30
+          if-no-files-found: error
+          path: build/signed-release/*.apk

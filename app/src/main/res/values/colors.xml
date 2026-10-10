@@ -21,4 +21,9 @@
     <!-- Skip Media Segment Button -->
     <color name="skip_media_segment_background">#202124</color>
     <color name="skip_media_segment_text">#DDDDDD</color>
+
+    <!-- Pelagica playback overlay palette -->
+    <color name="video_buffering_background">#cc171717</color>
+    <color name="video_buffering_border">#1affffff</color>
+    <color name="video_buffering_text">#fafafa</color>
 </resources>

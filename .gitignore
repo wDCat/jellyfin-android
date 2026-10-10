@@ -8,3 +8,8 @@ build
 /captures
 .externalNativeBuild
 .cxx
+.cursor
+openspec
+*.jks
+.*
+CLAUDE.md

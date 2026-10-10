@@ -45,6 +45,7 @@ compose-material-icons = "1.7.8"
 # Network
 jellyfin-sdk = "1.7.1"
 coil = "3.4.0"
+cronet-embedded = "119.6045.31"
 
 # Media
 androidx-media = "1.7.1"
@@ -124,6 +125,8 @@ coil = { group = "io.coil-kt.coil3", name = "coil", version.ref = "coil" }
 coil-network = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 
+cronet-embedded = { module = "org.chromium.net:cronet-embedded", version.ref = "cronet-embedded" }
+
 # Media
 androidx-media = { group = "androidx.media", name = "media", version.ref = "androidx-media" }
 androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "androidx-mediarouter" }
@@ -133,6 +136,7 @@ androidx-media3-session = { module = "androidx.media3:media3-session", version.r
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "androidx-media3" }
 androidx-media3-exoplayer-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "androidx-media3" }
 androidx-media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "androidx-media3" }
+androidx-media3-datasource-cronet = { module = "androidx.media3:media3-datasource-cronet", version.ref = "androidx-media3" }
 androidx-media3-cast = { module = "androidx.media3:media3-cast", version.ref = "androidx-media3" }
 playservices-cast = { group = "com.google.android.gms", name = "play-services-cast", version.ref = "playservices" }
 playservices-castframework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "playservices" }
