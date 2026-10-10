@@ -26,7 +26,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Assemble all APKs
-        run: ./gradlew assemble
+        run: ./gradlew assemble --stacktrace --max-workers=2 "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
       - name: Sign libre release APK
         id: sign-libre
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # tag=v1
