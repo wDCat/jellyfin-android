@@ -44,9 +44,11 @@ interface VideoProxyPlayerCallback {
 data class VideoProxyPlayerState(
     val currentTimeMs: Long = 0,
     val durationMs: Long = 0,
+    val bufferedPositionMs: Long = 0,
     val paused: Boolean = true,
     val ended: Boolean = false,
     val readyState: Int = 0,
+    val seekable: Boolean = false,
     /**
      * True in the exact state update that signals seek completion.
      * JS uses this to clear its _seeking guard and fire the 'seeked' event
@@ -145,6 +147,7 @@ class VideoProxyPlayer(
     // Seeking state: suppresses stale position updates from updateProgress()
     // between the JS bridge.seek() call and ExoPlayer completing the seek.
     private var isSeeking = false
+    private var pendingSeekPositionMs: Long? = null
 
     // After seek completes, ExoPlayer.currentPosition may transiently return 0
     // (or a stale value) before the internal position tracker fully syncs.
@@ -283,17 +286,17 @@ class VideoProxyPlayer(
             .setUri(Uri.parse(url))
             .build()
 
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        
-        _currentState = _currentState.copy(
-            currentTimeMs = 0,
-            durationMs = 0,
-            paused = true,
-            ended = false,
-            readyState = 0,
-            seeked = false,
+        val startPosition = pendingSeekPositionMs ?: 0L
+        val hasPendingSeek = pendingSeekPositionMs != null
+        pendingSeekPositionMs = null
+        _currentState = VideoProxyPlayerState(
+            currentTimeMs = startPosition,
+            paused = !player.playWhenReady,
         )
+        // Commands can arrive while a blob source is still being resolved.
+        isSeeking = hasPendingSeek
+        player.setMediaItem(mediaItem, startPosition)
+        player.prepare()
     }
 
     /**
@@ -324,7 +327,11 @@ class VideoProxyPlayer(
         // immediately. seeked=false until ExoPlayer confirms completion.
         _currentState = _currentState.copy(currentTimeMs = positionMs, seeked = false)
         notifyStateChanged()
-        player?.seekTo(positionMs)
+        if (currentSourceUrl.isEmpty()) {
+            pendingSeekPositionMs = positionMs
+        } else {
+            player?.seekTo(positionMs)
+        }
     }
 
     /**
@@ -581,7 +588,7 @@ class VideoProxyPlayer(
         
         val readyState = when (playbackState) {
             Player.STATE_IDLE -> 0
-            Player.STATE_BUFFERING -> 2
+            Player.STATE_BUFFERING -> if (_currentState.readyState > 0) 2 else 0
             Player.STATE_READY -> 4
             Player.STATE_ENDED -> 4
             else -> 0
@@ -597,7 +604,7 @@ class VideoProxyPlayer(
                 readyState = readyState,
             )
         } else {
-            _currentState = _currentState.copy(readyState = readyState)
+            _currentState = _currentState.copy(readyState = readyState, paused = player?.playWhenReady != true)
         }
 
         if (playbackState == Player.STATE_READY) {
@@ -618,7 +625,13 @@ class VideoProxyPlayer(
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         Timber.d("Is playing changed for $videoId: $isPlaying")
-        _currentState = _currentState.copy(paused = !isPlaying)
+        // Buffering/suppression does not change HTMLMediaElement.paused.
+        _currentState = _currentState.copy(paused = _currentState.ended || player?.playWhenReady != true)
+        notifyStateChanged()
+    }
+
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        _currentState = _currentState.copy(paused = _currentState.ended || !playWhenReady)
         notifyStateChanged()
     }
 
@@ -754,6 +767,10 @@ class VideoProxyPlayer(
     }
 
     private fun notifyStateChanged() {
+        _currentState = _currentState.copy(
+            bufferedPositionMs = player?.bufferedPosition?.coerceAtLeast(0) ?: 0,
+            seekable = player?.isCurrentMediaItemSeekable == true,
+        )
         callback.onStateChanged(videoId, _currentState)
     }
 }

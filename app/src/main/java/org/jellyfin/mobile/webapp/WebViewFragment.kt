@@ -153,7 +153,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 context = requireContext(),
                 appPreferences = appPreferences,
                 webappFunctionChannel = webappFunctionChannel,
-                coroutineScope = lifecycleScope,
+                coroutineScope = viewLifecycleOwner.lifecycleScope,
                 mediaSourceResolver = mediaSourceResolver,
                 apiClient = apiClient,
                 deviceProfileBuilder = deviceProfileBuilder,
@@ -166,7 +166,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 }
                 
                 // Forward events from bridge to manager
-                lifecycleScope.launch {
+                viewLifecycleOwner.lifecycleScope.launch {
                     for (event in videoProxyEventChannel) {
                         manager.eventChannel.trySend(event)
                     }
@@ -212,7 +212,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         }
 
         // Process JS functions called from other components (e.g. the PlayerActivity)
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             for (function in webappFunctionChannel) {
                 webView.loadUrl("javascript:$function")
             }

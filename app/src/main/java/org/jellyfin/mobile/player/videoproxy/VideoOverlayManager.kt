@@ -18,7 +18,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
 import org.jellyfin.mobile.player.source.MediaSourceResolver
@@ -48,6 +50,10 @@ class VideoOverlayManager(
 ) : VideoProxyPlayerCallback {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val resolutionJobs = mutableMapOf<String, Job>()
+    private val fullscreenVideos = mutableSetOf<String>()
+    private var eventJob: Job? = null
+    private var released = false
     private var overlayContainer: FrameLayout? = null
     private var subtitleContainer: FrameLayout? = null
     private var webView: WebView? = null
@@ -104,7 +110,7 @@ class VideoOverlayManager(
         Timber.d("VideoOverlayManager initialized")
         
         // Start listening for events
-        coroutineScope.launch {
+        eventJob = coroutineScope.launch {
             for (event in eventChannel) {
                 handleEvent(event)
             }
@@ -118,6 +124,7 @@ class VideoOverlayManager(
      * Handle events from JavaScript bridge.
      */
     private fun handleEvent(event: VideoProxyEvent) {
+        if (released) return
         when (event) {
             is VideoProxyEvent.VideoCreated -> createVideoOverlay(event.videoId)
             is VideoProxyEvent.VideoDestroyed -> destroyVideoOverlay(event.videoId)
@@ -158,17 +165,6 @@ class VideoOverlayManager(
             (oldSubtitle.parent as? ViewGroup)?.removeView(oldSubtitle)
         }
 
-        // Clean up stale players that have no source (idle video elements that were
-        // created but never used). This prevents accumulation of unused ExoPlayer instances.
-        val staleIds = players.entries
-            .filter { (id, _) -> id != videoId }
-            .filter { (_, player) -> player.currentState.readyState == 0 && player.getDuration() == 0L }
-            .map { it.key }
-        for (staleId in staleIds) {
-            Timber.d("Cleaning up stale player: $staleId")
-            destroyVideoOverlay(staleId)
-        }
-        
         // Create player
         val player = VideoProxyPlayer(
             context = context,
@@ -234,6 +230,8 @@ class VideoOverlayManager(
     private fun destroyVideoOverlay(videoId: String) {
         Timber.d("Destroying video overlay for $videoId")
 
+        resolutionJobs.remove(videoId)?.cancel()
+        fullscreenVideos.remove(videoId)
         players.remove(videoId)?.release()
         videoBounds.remove(videoId)
         videoVisibility.remove(videoId)
@@ -257,6 +255,7 @@ class VideoOverlayManager(
      */
     private fun setVideoSource(videoId: String, src: String) {
         Timber.d("Setting video source for $videoId: $src")
+        resolutionJobs.remove(videoId)?.cancel()
         players[videoId]?.setSource(src)
     }
 
@@ -269,44 +268,41 @@ class VideoOverlayManager(
      * letting ExoPlayer handle the decoding natively.
      */
     private fun resolveAndSetVideoSource(videoId: String, itemId: String, mediaSourceId: String) {
+        resolutionJobs.remove(videoId)?.cancel()
+        val player = players[videoId] ?: return
         val itemUuid = itemId.toUUIDOrNull() ?: run {
-            Timber.e("Invalid item ID for video proxy resolution: $itemId")
-            callJavaScript("VideoProxyCallback.onError('$videoId', 4, 'Invalid item ID')")
+            callJavaScript("onError", videoId, MEDIA_ERR_SRC_NOT_SUPPORTED, "Invalid item ID")
             return
         }
-
-        Timber.d("Resolving direct play URL for $videoId: itemId=$itemId, mediaSourceId=$mediaSourceId")
-
-        // Use the external player profile which forces direct play (no transcoding)
         val profile = deviceProfileBuilder.getExternalPlayerProfile()
-        val videosApi = apiClient.videosApi
-
-        coroutineScope.launch(Dispatchers.IO) {
-            mediaSourceResolver.resolveMediaSource(
-                itemId = itemUuid,
-                mediaSourceId = mediaSourceId.ifEmpty { null },
-                deviceProfile = profile,
-                maxStreamingBitrate = Int.MAX_VALUE, // Ensure direct play
-                autoOpenLiveStream = false,
-            ).onSuccess { jellyfinMediaSource ->
-                val url = videosApi.getVideoStreamUrl(
-                    itemId = jellyfinMediaSource.itemId,
-                    static = true,
-                    mediaSourceId = jellyfinMediaSource.id,
-                    playSessionId = jellyfinMediaSource.playSessionId,
+        resolutionJobs[videoId] = coroutineScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                mediaSourceResolver.resolveMediaSource(
+                    itemId = itemUuid,
+                    mediaSourceId = mediaSourceId.ifEmpty { null },
+                    deviceProfile = profile,
+                    maxStreamingBitrate = Int.MAX_VALUE,
+                    autoOpenLiveStream = false,
                 )
-                Timber.d("Resolved direct play URL for $videoId: $url")
-
-                // Set the resolved URL as the video source (must run on main thread)
-                launch(Dispatchers.Main) {
-                    setVideoSource(videoId, url)
-                }
+            }
+            // A newer source, destroyed element or released view invalidates this result.
+            if (!isActive || released || players[videoId] !== player) return@launch
+            result.onSuccess { source ->
+                val url = apiClient.videosApi.getVideoStreamUrl(
+                    itemId = source.itemId,
+                    static = true,
+                    mediaSourceId = source.id,
+                    playSessionId = source.playSessionId,
+                )
+                player.setSource(url)
             }.onFailure { error ->
-                Timber.e(error, "Failed to resolve media source for $videoId (itemId=$itemId)")
-                val escapedMessage = (error.message ?: "Unknown error").replace("'", "\\'")
-                launch(Dispatchers.Main) {
-                    callJavaScript("VideoProxyCallback.onError('$videoId', 4, 'Failed to resolve: $escapedMessage')")
-                }
+                Timber.e(error, "Failed to resolve media source for $videoId")
+                callJavaScript(
+                    "onError",
+                    videoId,
+                    MEDIA_ERR_SRC_NOT_SUPPORTED,
+                    "Failed to resolve: " + (error.message ?: "Unknown error"),
+                )
             }
         }
     }
@@ -441,6 +437,7 @@ class VideoOverlayManager(
      * Set fullscreen mode.
      */
     private fun setVideoFullscreen(videoId: String, fullscreen: Boolean) {
+        if (fullscreen) fullscreenVideos.add(videoId) else fullscreenVideos.remove(videoId)
         Timber.d("Setting fullscreen for $videoId: $fullscreen")
 
         val surfaceView = surfaceViews[videoId] ?: return
@@ -497,22 +494,15 @@ class VideoOverlayManager(
         val size = VideoNativeSize(width, height, pixelWidthHeightRatio)
         videoNativeSizes[videoId] = size
 
-        // Apply aspect ratio via LayoutParams to the SurfaceView
-        surfaceViews[videoId]?.let { surfaceView ->
-            surfaceView.post {
-                applyAspectRatio(surfaceView, size)
-            }
-        }
-
-        // Notify JavaScript about video intrinsic dimensions
-        callJavaScript("VideoProxyCallback.onVideoSizeChanged('$videoId', $width, $height, $pixelWidthHeightRatio)")
+        reapplyAspectRatio(videoId)
+        callJavaScript("onVideoSizeChanged", videoId, width, height, pixelWidthHeightRatio)
     }
 
     override fun onRenderedFirstFrame(videoId: String) {
         Timber.d("First frame rendered for $videoId")
         // Notify JavaScript so it can make the web content transparent now that
         // the native ExoPlayer has actual video content to show through.
-        callJavaScript("VideoProxyCallback.onFirstFrameRendered('$videoId')")
+        callJavaScript("onFirstFrameRendered", videoId)
     }
 
     /**
@@ -563,7 +553,20 @@ class VideoOverlayManager(
     private fun reapplyAspectRatio(videoId: String) {
         val surfaceView = surfaceViews[videoId] ?: return
         val size = videoNativeSizes[videoId] ?: return
-        surfaceView.post { applyAspectRatio(surfaceView, size) }
+        surfaceView.post {
+            if (released || surfaceViews[videoId] !== surfaceView) return@post
+            // Always fit against the original video box, never the already fitted surface.
+            if (videoId in fullscreenVideos) {
+                surfaceView.layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                )
+            } else {
+                val bounds = videoBounds[videoId] ?: return@post
+                applyBoundsToSurfaceView(surfaceView, bounds)
+            }
+            applyAspectRatio(surfaceView, size)
+        }
     }
 
     /**
@@ -602,31 +605,26 @@ class VideoOverlayManager(
     }
 
     override fun onStateChanged(videoId: String, state: VideoProxyPlayerState) {
-        // Notify JavaScript about state change.
-        // seeked=true tells JS to clear its _seeking guard and fire the 'seeked'
-        // event without relying on a fixed timeout.
-        val stateJson = """
-            {
-                "currentTime": ${state.currentTimeMs},
-                "duration": ${state.durationMs},
-                "paused": ${state.paused},
-                "ended": ${state.ended},
-                "readyState": ${state.readyState},
-                "seeked": ${state.seeked}
-            }
-        """.trimIndent()
-        
-        callJavaScript("VideoProxyCallback.onStateChange('$videoId', $stateJson)")
+        val json = JSONObject().apply {
+            put("currentTime", state.currentTimeMs)
+            put("duration", state.durationMs)
+            put("buffered", state.bufferedPositionMs)
+            put("paused", state.paused)
+            put("ended", state.ended)
+            put("readyState", state.readyState)
+            put("seekable", state.seekable)
+            put("seeked", state.seeked)
+        }
+        callJavaScript("onStateChange", videoId, json)
     }
 
     override fun onBuffering(videoId: String, isBuffering: Boolean) {
-        callJavaScript("VideoProxyCallback.onBuffering('$videoId', $isBuffering)")
+        callJavaScript("onBuffering", videoId, isBuffering)
         updateBitrateIndicator(videoId, isBuffering)
     }
 
     override fun onError(videoId: String, errorCode: Int, errorMessage: String) {
-        val escapedMessage = errorMessage.replace("'", "\\'")
-        callJavaScript("VideoProxyCallback.onError('$videoId', $errorCode, '$escapedMessage')")
+        callJavaScript("onError", videoId, errorCode, errorMessage)
     }
 
     override fun onTracksChanged(videoId: String, audioTracks: List<ProxyTrackInfo>, subtitleTracks: List<ProxyTrackInfo>) {
@@ -661,15 +659,13 @@ class VideoOverlayManager(
             })
         }
 
-        val escapedJson = tracksJson.toString().replace("'", "\\'")
-        callJavaScript("VideoProxyCallback.onTracksChanged('$videoId', '$escapedJson')")
+        callJavaScript("onTracksChanged", videoId, tracksJson)
     }
 
-    /**
-     * Call JavaScript function in the WebView.
-     */
-    private fun callJavaScript(script: String) {
-        webappFunctionChannel.call(script)
+    private fun callJavaScript(method: String, vararg arguments: Any?) {
+        if (released) return
+        val jsonArguments = JSONArray(arguments.toList())
+        webappFunctionChannel.call("window.VideoProxyCallback?.$method(...$jsonArguments)")
     }
 
     /**
@@ -937,6 +933,11 @@ class VideoOverlayManager(
      * Clean up all resources.
      */
     fun release() {
+        released = true
+        eventJob?.cancel()
+        resolutionJobs.values.forEach { it.cancel() }
+        resolutionJobs.clear()
+        fullscreenVideos.clear()
         Timber.d("Releasing VideoOverlayManager")
         
         progressUpdateJob?.cancel()
@@ -983,5 +984,9 @@ class VideoOverlayManager(
      */
     fun resumeAll() {
         // Players will be resumed by JavaScript when appropriate
+    }
+
+    private companion object {
+        const val MEDIA_ERR_SRC_NOT_SUPPORTED = 4
     }
 }

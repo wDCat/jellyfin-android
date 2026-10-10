@@ -59,6 +59,9 @@
     // Store for proxied video elements
     const proxiedVideos = new Map();
     let videoIdCounter = 0;
+    const pageId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const playbackContexts = new Map();
+    const transparentAncestors = new WeakMap();
 
     // --- Playback context capture via fetch interception ---
     // When the Jellyfin Web client calls the PlaybackInfo API before starting
@@ -74,9 +77,7 @@
      * indices for mapping between Jellyfin server indices and ExoPlayer
      * track group indices.
      */
-    function extractPlaybackContext(itemId, data) {
-        const mediaSource = (data.MediaSources && data.MediaSources.length > 0)
-            ? data.MediaSources[0] : null;
+    function extractPlaybackContext(itemId, data, mediaSource) {
 
         // Collect audio stream indices (server MediaStream.Index values)
         // in the order they appear. This establishes the mapping:
@@ -119,6 +120,35 @@
         };
     }
 
+    const normalizeId = value => String(value || '').replace(/-/g, '').toLowerCase();
+
+    function capturePlaybackContext(itemId, data, url, body) {
+        let requestedSource = new URL(url, document.baseURI).searchParams.get('MediaSourceId');
+        try {
+            const request = typeof body === 'string' ? JSON.parse(body) : body;
+            requestedSource = request?.MediaSourceId || request?.mediaSourceId || requestedSource;
+        } catch (_) { /* The request body may not be JSON. */ }
+        const contexts = (data.MediaSources || []).map(source => extractPlaybackContext(itemId, data, source));
+        for (const context of contexts) {
+            playbackContexts.set(normalizeId(itemId) + ':' + normalizeId(context.mediaSourceId), context);
+        }
+        while (playbackContexts.size > 32) playbackContexts.delete(playbackContexts.keys().next().value);
+        currentPlaybackContext = contexts.find(context => normalizeId(context.mediaSourceId) === normalizeId(requestedSource))
+            || contexts[0] || null;
+    }
+
+    function contextForSource(src) {
+        if (src.startsWith('blob:')) return currentPlaybackContext;
+        try {
+            const url = new URL(src, document.baseURI);
+            const itemId = url.pathname.match(/\/videos\/([^/]+)/i)?.[1];
+            if (!itemId) return null;
+            const sourceId = url.searchParams.get('MediaSourceId') || url.searchParams.get('mediaSourceId');
+            if (sourceId) return playbackContexts.get(normalizeId(itemId) + ':' + normalizeId(sourceId)) || null;
+            return normalizeId(currentPlaybackContext?.itemId) === normalizeId(itemId) ? currentPlaybackContext : null;
+        } catch (_) { return null; }
+    }
+
     /**
      * Detect when the web client fetches a subtitle for an embedded SRT track.
      * Sets _activeNativeSubtitleIndex on the proxy state so the mode setter
@@ -129,91 +159,19 @@
      * the track embedded — it's more reliable to let ExoPlayer render it
      * natively via SubtitleView.
      */
-    function handleSubtitleFetched(streamIndex) {
-        const ctx = currentPlaybackContext;
-        if (!ctx) {
-            console.log(`[VideoProxy] handleSubtitleFetched(${streamIndex}): no playback context`);
-            return;
-        }
-
-        const serverStream = ctx.subtitleStreams.find(s => s.index === streamIndex);
-        console.log(`[VideoProxy] handleSubtitleFetched(${streamIndex}): ` +
-            (serverStream
-                ? `codec=${serverStream.codec} isExternal=${serverStream.isExternal} delivery=${serverStream.deliveryMethod}`
-                : 'stream NOT found in context'));
-
-        for (const [, proxyState] of proxiedVideos) {
-            if (!proxyState.isProxied) continue;
-
-            if (serverStream && !serverStream.isExternal &&
-                NATIVE_SUBTITLE_SERVER_CODECS.includes(serverStream.codec)) {
-                // Look up by server stream index (id)
-                let exoTrack = proxyState._textTrackList._tracks.find(
-                    t => t._source !== 'web' && t.id === String(streamIndex)
-                );
-
-                // Fallback: if exact id match fails (mapping issue), try
-                // matching by language among native-renderable ExoPlayer tracks
-                if (!exoTrack && serverStream.language) {
-                    exoTrack = proxyState._textTrackList._tracks.find(
-                        t => t._source !== 'web' && t._isNativeRenderable() &&
-                             t.language && serverStream.language &&
-                             t.language.substring(0, 3) === serverStream.language.substring(0, 3)
-                    );
-                    if (exoTrack) {
-                        console.log(`[VideoProxy] ID match failed, language fallback matched: ` +
-                            `lang=${serverStream.language} → ExoPlayer group ${exoTrack._index}`);
-                    }
-                }
-
-                if (exoTrack) {
-                    proxyState._activeNativeSubtitleIndex = exoTrack._index;
-                    console.log(`[VideoProxy] Native subtitle override: stream ${streamIndex}` +
-                        ` → ExoPlayer group ${exoTrack._index}`);
-                    return;
-                }
-
-                // Log available ExoPlayer tracks for debugging
-                const exoTracks = proxyState._textTrackList._tracks
-                    .filter(t => t._source !== 'web')
-                    .map(t => `{id=${t.id}, lang=${t.language}, codec=${t._serverCodec}}`);
-                console.log(`[VideoProxy] No ExoPlayer track matched stream ${streamIndex}. ` +
-                    `Available: [${exoTracks.join(', ')}]`);
-            }
-
-            // Not an embedded SRT or no matching ExoPlayer track → clear override
+    function handleSubtitleFetched(url) {
+        const match = url.match(/\/Videos\/([^/]+)\/([^/]+)\/Subtitles\/(\d+)\//i);
+        if (!match) return;
+        for (const proxyState of proxiedVideos.values()) {
+            const ctx = proxyState._playbackContext;
+            if (!proxyState.isProxied || !ctx || normalizeId(ctx.itemId) !== normalizeId(match[1]) ||
+                normalizeId(ctx.mediaSourceId) !== normalizeId(match[2])) continue;
+            const stream = ctx.subtitleStreams.find(s => s.index === Number(match[3]));
             proxyState._activeNativeSubtitleIndex = -1;
-        }
-    }
-
-    /**
-     * Fallback: try to resolve a native ExoPlayer subtitle track by matching
-     * language/label against embedded SRT ExoPlayer tracks. Used when the
-     * fetch/XHR interception didn't set _activeNativeSubtitleIndex.
-     */
-    function tryResolveNativeSubtitle(proxyState, language, label) {
-        const exoTracks = proxyState._textTrackList._tracks.filter(
-            t => t._source !== 'web' && t._isNativeRenderable()
-        );
-        if (exoTracks.length === 0) return;
-
-        // Try matching by language (first 3 chars, e.g. "eng", "chi", "jpn")
-        const langPrefix = language.substring(0, 3).toLowerCase();
-        let match = exoTracks.find(t =>
-            t.language && t.language.substring(0, 3).toLowerCase() === langPrefix
-        );
-
-        // If no language match and there's only one native-renderable track,
-        // assume it's the one the user wants
-        if (!match && exoTracks.length === 1) {
-            match = exoTracks[0];
-            console.log(`[VideoProxy] tryResolveNativeSubtitle: single ExoPlayer SRT track, using it`);
-        }
-
-        if (match) {
-            proxyState._activeNativeSubtitleIndex = match._index;
-            console.log(`[VideoProxy] tryResolveNativeSubtitle: lang=${language} label=${label}` +
-                ` → ExoPlayer group ${match._index} (lang=${match.language})`);
+            if (stream && !stream.isExternal && NATIVE_SUBTITLE_SERVER_CODECS.includes(stream.codec)) {
+                const track = proxyState._textTrackList._tracks.find(t => t._source !== 'web' && t.id === String(stream.index));
+                if (track) proxyState._activeNativeSubtitleIndex = track._index;
+            }
         }
     }
 
@@ -229,7 +187,7 @@
             if (preUrl) {
                 const subtitleMatch = preUrl.match(/\/Subtitles\/(\d+)\//);
                 if (subtitleMatch) {
-                    handleSubtitleFetched(parseInt(subtitleMatch[1], 10));
+                    handleSubtitleFetched(preUrl);
                 }
             }
         } catch (e) {
@@ -248,7 +206,7 @@
                 if (match) {
                     const clonedResponse = response.clone();
                     const data = await clonedResponse.json();
-                    currentPlaybackContext = extractPlaybackContext(match[1], data);
+                    capturePlaybackContext(match[1], data, url, args[1]?.body);
                     console.log('[VideoProxy] Captured playback context:',
                         JSON.stringify(currentPlaybackContext));
                 }
@@ -279,7 +237,7 @@
                         const match = xhrUrl.match(/\/Items\/([a-f0-9-]+)\/PlaybackInfo/i);
                         if (match && this.responseText) {
                             const data = JSON.parse(this.responseText);
-                            currentPlaybackContext = extractPlaybackContext(match[1], data);
+                            capturePlaybackContext(match[1], data, xhrUrl, body);
                             console.log('[VideoProxy] Captured playback context (XHR):',
                                 JSON.stringify(currentPlaybackContext));
                         }
@@ -292,7 +250,7 @@
             // Detect subtitle API fetches via XHR
             const subtitleMatch = xhrUrl.match(/\/Subtitles\/(\d+)\//);
             if (subtitleMatch) {
-                handleSubtitleFetched(parseInt(subtitleMatch[1], 10));
+                handleSubtitleFetched(xhrUrl);
             }
         }
         return originalXHRSend.call(this, body);
@@ -300,7 +258,7 @@
 
     // Generate unique video ID
     function generateVideoId() {
-        return 'video_proxy_' + (++videoIdCounter);
+        return 'video_proxy_' + pageId + '_' + (++videoIdCounter);
     }
 
     // Debounce helper
@@ -472,8 +430,10 @@
      * For non-SRT codecs, the web client downloads and renders via DOM.
      */
     function autoEnableSubtitleTrack(proxyState) {
-        const ctx = currentPlaybackContext;
-        if (!ctx || ctx.defaultSubtitleStreamIndex < 0) return;
+        const ctx = proxyState._playbackContext;
+        if (proxyState._subtitleSelectionInitialized || !ctx || !proxyState._textTrackList.length) return;
+        proxyState._subtitleSelectionInitialized = true;
+        if (ctx.defaultSubtitleStreamIndex < 0) return;
 
         // Find the selected subtitle stream in the server's metadata
         const selectedStream = ctx.subtitleStreams.find(
@@ -529,7 +489,7 @@
         constructor(trackList, info) {
             this._trackList = trackList;
             this.id = String(info.serverStreamIndex ?? info.index);
-            this.kind = info.isForced ? 'forced' : 'subtitles';
+            this.kind = 'subtitles';
             this.label = info.label || '';
             this.language = info.language || '';
             this._mode = info.isSelected ? 'showing' : 'disabled';
@@ -583,6 +543,8 @@
 
         get mode() { return this._mode; }
         set mode(value) {
+            const state = proxiedVideos.get(this._trackList._videoId);
+            if (state) state._subtitleSelectionInitialized = true;
             if (value === this._mode) return;
             this._mode = value;
 
@@ -606,13 +568,6 @@
                     // ExoPlayer, redirect to native rendering via SubtitleView.
                     const proxyState = proxiedVideos.get(this._trackList._videoId);
                     let nativeIdx = proxyState?._activeNativeSubtitleIndex ?? -1;
-
-                    // Last resort fallback: try to resolve native track by
-                    // language if no prior mechanism set the override
-                    if (nativeIdx < 0 && proxyState && this.language) {
-                        tryResolveNativeSubtitle(proxyState, this.language, this.label);
-                        nativeIdx = proxyState._activeNativeSubtitleIndex;
-                    }
 
                     if (nativeIdx >= 0) {
                         this._nativeRendering = true;
@@ -648,6 +603,12 @@
          * exposed via activeCues so the web client can render them.
          */
         addCue(cue) {
+            // Jellyfin reuses existing tracks for downloaded cues, but only
+            // disables tracks marked manualTrack when subtitles are turned off.
+            // Mark an adopted embedded track too, including native-rendered cues.
+            if (this._source === 'exoplayer' && !this.label.includes('manualTrack')) {
+                this.label = this.label ? `${this.label} manualTrack` : 'manualTrack';
+            }
             if (this._nativeRendering) return;
             this._cues.push(cue);
         }
@@ -700,6 +661,8 @@
         constructor(videoId) {
             this._videoId = videoId;
             this._tracks = [];
+            this._cueOverlay = null;
+            this._renderedCues = [];
             this._listeners = { change: [], addtrack: [], removetrack: [] };
             this.onchange = null;
             this.onaddtrack = null;
@@ -746,6 +709,65 @@
          */
         _checkCueChanges() {
             this._tracks.forEach(track => track._checkCueChange());
+            this._renderCues();
+        }
+
+        // The browser cannot paint cues from our synthetic TextTrack objects.
+        // Paint showing web cues above the native surface; hidden tracks remain
+        // available to custom cuechange renderers without displaying twice.
+        _renderCues() {
+            const state = proxiedVideos.get(this._videoId);
+            const video = state?.originalVideo;
+            const cues = this._tracks.filter(track => track.mode === 'showing' && !track._nativeRendering)
+                .flatMap(track => Array.from(track.activeCues));
+            if (!state?._visible || !video?.parentElement || !cues.length) {
+                this._clearCueOverlay();
+                return;
+            }
+            if (!this._cueOverlay) {
+                this._cueOverlay = document.createElement('div');
+                this._cueOverlay.className = 'videoProxySubtitles';
+                this._cueOverlay.style.cssText = 'position:fixed;pointer-events:none;overflow:hidden;z-index:2;';
+            }
+            if (this._cueOverlay.parentElement !== video.parentElement) video.parentElement.appendChild(this._cueOverlay);
+            const rect = video.getBoundingClientRect();
+            Object.assign(this._cueOverlay.style, {
+                left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`,
+                fontSize: `${Math.max(16, rect.height * 0.047)}px`,
+            });
+            if (cues.length === this._renderedCues.length && cues.every((cue, i) => cue === this._renderedCues[i])) return;
+            this._renderedCues = cues;
+            this._cueOverlay.replaceChildren();
+            for (const cue of cues) {
+                const line = document.createElement('div');
+                line.style.cssText = 'position:absolute;left:2%;width:96%;text-align:center;white-space:pre-line;';
+                line.style.textAlign = cue.align || 'center';
+                if (typeof cue.line === 'number' && !cue.snapToLines) {
+                    line.style.top = `${cue.line}%`;
+                } else if (typeof cue.line === 'number' && cue.line >= 0) {
+                    line.style.top = `${cue.line * 1.2}em`;
+                } else {
+                    line.style.bottom = `${typeof cue.line === 'number' ? Math.max(0, -cue.line - 1) * 1.2 + 0.5 : 0.5}em`;
+                }
+                const text = document.createElement('span');
+                text.style.cssText = 'color:white;background:rgba(0,0,0,.8);padding:0 .15em;';
+                // Jellyfin writes the user's text appearance into an inline ::cue rule.
+                for (const style of document.querySelectorAll('style[id$="-cuestyle"]')) {
+                    for (const rule of style.sheet?.cssRules || []) {
+                        if (rule.selectorText?.includes('::cue')) text.style.cssText += rule.style.cssText;
+                    }
+                }
+                if (typeof cue.getCueAsHTML === 'function') text.appendChild(cue.getCueAsHTML());
+                else text.textContent = cue.text;
+                line.appendChild(text);
+                this._cueOverlay.appendChild(line);
+            }
+        }
+
+        _clearCueOverlay() {
+            this._cueOverlay?.remove();
+            this._cueOverlay = null;
+            this._renderedCues = [];
         }
 
         /**
@@ -775,6 +797,7 @@
          */
         _update(trackInfos, serverStreamIndices, serverSubtitleStreams) {
             const webTracks = this._tracks.filter(t => t._source === 'web');
+            const oldTracks = this._tracks.filter(t => t._source !== 'web');
 
             // ExoPlayer only has tracks embedded in the container.
             // Filter to non-external server streams for positional mapping.
@@ -801,14 +824,22 @@
                     _serverCodec: serverStream ? serverStream.codec : '',
                     _deliveryMethod: serverStream ? serverStream.deliveryMethod : '',
                 });
-                return new ProxyTextTrack(this, enriched);
+                const existing = oldTracks.find(t => t._index === info.index && t.id === String(serverIdx ?? info.index));
+                if (existing) {
+                    existing._mode = info.isSelected ? 'showing' : 'disabled';
+                    existing._nativeRendering = !!info.isSelected && existing._isNativeRenderable();
+                    return existing;
+                }
+                const track = new ProxyTextTrack(this, enriched);
+                track._nativeRendering = !!info.isSelected && track._isNativeRenderable();
+                return track;
             });
 
             this._tracks = [...exoTracks, ...webTracks];
 
             // Fire addtrack events so the web client discovers embedded text
             // tracks (it listens for addtrack to detect native text tracks).
-            exoTracks.forEach(track => {
+            exoTracks.filter(track => !oldTracks.includes(track)).forEach(track => {
                 const event = new Event('addtrack');
                 event.track = track;
                 this._listeners.addtrack.forEach(l => l(event));
@@ -822,6 +853,7 @@
             const event = new Event('change');
             this._listeners.change.forEach(l => l(event));
             if (typeof this.onchange === 'function') this.onchange(event);
+            this._renderCues();
         }
     }
 
@@ -833,6 +865,22 @@
             this.videoId = videoId;
             this.originalVideo = originalVideo;
             this.isProxied = false;
+            this._nativeDescriptors = {};
+            let prototype = originalVideo;
+            while ((prototype = Object.getPrototypeOf(prototype))) {
+                for (const key of Object.getOwnPropertyNames(prototype)) {
+                    if (!this._nativeDescriptors[key]) this._nativeDescriptors[key] = Object.getOwnPropertyDescriptor(prototype, key);
+                }
+            }
+            this._nativePause = originalVideo.pause.bind(originalVideo);
+            this._nativeLoad = originalVideo.load.bind(originalVideo);
+            this._nativeRemoveAttribute = originalVideo.removeAttribute.bind(originalVideo);
+            this._playbackContext = null;
+            this._subtitleSelectionInitialized = false;
+            this._destroyed = false;
+            this._error = null;
+            this._buffering = false;
+            this._playing = false;
             
             // Whether the native ExoPlayer has been created for this video
             this._nativeCreated = false;
@@ -847,7 +895,8 @@
             this._muted = false;
             this._playbackRate = 1.0;
             this._readyState = 0;
-            this._buffered = null;
+            this._buffered = 0;
+            this._seekable = false;
 
             // Track lists
             this._audioTrackList = new ProxyAudioTrackList(videoId);
@@ -892,6 +941,76 @@
          * Ensure the native ExoPlayer is created (lazy initialization).
          * Only creates the player on first call; subsequent calls are no-ops.
          */
+        nativeGet(prop) {
+            return this._nativeDescriptors[prop]?.get?.call(this.originalVideo);
+        }
+
+        nativeSet(prop, value) {
+            this._nativeDescriptors[prop]?.set?.call(this.originalVideo, value);
+        }
+
+        releaseNativePlayer() {
+            this.stopObserving();
+            this._textTrackList._clearCueOverlay();
+            this.restoreTransparency();
+            if (this._nativeCreated) bridge.onVideoElementDestroyed(this.videoId);
+            this._nativeCreated = false;
+            this.isProxied = false;
+            proxiedVideos.delete(this.videoId);
+        }
+
+        setSource(value) {
+            value = String(value);
+            // Keep settings written before assigning the source.
+            if (!this.isProxied && !this._destroyed) {
+                this._volume = this.nativeGet('volume') ?? this._volume;
+                this._muted = this.nativeGet('muted') ?? this._muted;
+                this._playbackRate = this.nativeGet('playbackRate') ?? this._playbackRate;
+            }
+            this.releaseNativePlayer();
+            this._destroyed = false;
+            this.videoId = generateVideoId();
+            this._src = value;
+            this._playbackContext = contextForSource(value);
+            this._subtitleSelectionInitialized = false;
+            this._activeNativeSubtitleIndex = -1;
+            this._audioTrackList = new ProxyAudioTrackList(this.videoId);
+            this._textTrackList = new ProxyTextTrackList(this.videoId);
+            this._currentTime = this._duration = this._readyState = this._buffered = 0;
+            this._seekable = false;
+            this._nativeVideoWidth = this._nativeVideoHeight = 0;
+            this._bounds = { x: 0, y: 0, width: 0, height: 0 };
+            this._paused = true;
+            this._ended = this._seeking = this._buffering = this._playing = false;
+            this._seekCompletedAt = 0;
+            this._error = null;
+            const resolveBlob = value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
+            const direct = value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
+            if (!resolveBlob && !direct) {
+                this.nativeSet('src', value);
+                this.nativeSet('volume', this._volume);
+                this.nativeSet('muted', this._muted);
+                this.nativeSet('playbackRate', this._playbackRate);
+                return;
+            }
+            this._nativePause();
+            if (this.nativeGet('src')) {
+                this._nativeRemoveAttribute('src');
+                this._nativeLoad();
+            }
+            this.isProxied = true;
+            proxiedVideos.set(this.videoId, this);
+            this.ensureNativePlayer();
+            if (resolveBlob) {
+                bridge.resolveAndSetSource(this.videoId, this._playbackContext.itemId, this._playbackContext.mediaSourceId);
+            } else {
+                bridge.setSource(this.videoId, value);
+            }
+            bridge.setVolume(this.videoId, this._muted ? 0 : this._volume);
+            bridge.setPlaybackRate(this.videoId, this._playbackRate);
+            this.startObserving();
+        }
+
         ensureNativePlayer() {
             if (this._nativeCreated) return;
             this._nativeCreated = true;
@@ -900,71 +1019,57 @@
         }
 
         /**
-         * Make the video area transparent so the native TextureView
+         * Make the video area transparent so the native SurfaceView
          * beneath the WebView can show through.
          * Sets all ancestor elements' backgrounds to transparent and
          * saves original values for later restoration.
          */
         makeTransparent() {
-            this._savedStyles = [];
-
-            // Make video element transparent
+            if (this._transparent) return;
+            this._transparent = true;
+            const properties = ['opacity', 'background', 'background-color'];
+            this._videoStyles = properties.map(name => ({ name,
+                value: this.originalVideo.style.getPropertyValue(name),
+                priority: this.originalVideo.style.getPropertyPriority(name) }));
             this.originalVideo.style.setProperty('opacity', '0', 'important');
             this.originalVideo.style.setProperty('background', 'transparent', 'important');
             this.originalVideo.style.setProperty('background-color', 'transparent', 'important');
-
-            // Traverse up the DOM tree and make all ancestors transparent
-            // This includes all containers up to and including <html>
-            let element = this.originalVideo.parentElement;
-            while (element) {
-                this._savedStyles.push({
-                    element: element,
-                    background: element.style.getPropertyValue('background'),
-                    backgroundPriority: element.style.getPropertyPriority('background'),
-                    backgroundColor: element.style.getPropertyValue('background-color'),
-                    backgroundColorPriority: element.style.getPropertyPriority('background-color'),
-                });
-                element.style.setProperty('background', 'transparent', 'important');
-                element.style.setProperty('background-color', 'transparent', 'important');
-                element = element.parentElement;
+            for (let element = this.originalVideo.parentElement; element; element = element.parentElement) {
+                let saved = transparentAncestors.get(element);
+                if (!saved) {
+                    saved = { element, count: 0, styles: ['background', 'background-color'].map(name => ({ name,
+                        value: element.style.getPropertyValue(name), priority: element.style.getPropertyPriority(name) })) };
+                    transparentAncestors.set(element, saved);
+                    element.style.setProperty('background', 'transparent', 'important');
+                    element.style.setProperty('background-color', 'transparent', 'important');
+                }
+                saved.count++;
+                this._savedStyles.push(saved);
             }
-
-            console.log(`[VideoProxy] Made ${this._savedStyles.length} ancestors transparent for ${this.videoId}`);
         }
 
-        /**
-         * Restore the original backgrounds of ancestor elements.
-         */
         restoreTransparency() {
-            // Restore video element
-            this.originalVideo.style.removeProperty('opacity');
-            this.originalVideo.style.removeProperty('background');
-            this.originalVideo.style.removeProperty('background-color');
-
-            // Restore ancestors
+            if (!this._transparent) return;
+            const restore = (element, styles) => styles.forEach(({ name, value, priority }) => {
+                if (value) element.style.setProperty(name, value, priority);
+                else element.style.removeProperty(name);
+            });
+            restore(this.originalVideo, this._videoStyles);
             for (const saved of this._savedStyles) {
-                if (saved.background) {
-                    saved.element.style.setProperty('background', saved.background, saved.backgroundPriority || '');
-                } else {
-                    saved.element.style.removeProperty('background');
+                if (--saved.count === 0) {
+                    restore(saved.element, saved.styles);
+                    transparentAncestors.delete(saved.element);
                 }
-                if (saved.backgroundColor) {
-                    saved.element.style.setProperty('background-color', saved.backgroundColor, saved.backgroundColorPriority || '');
-                } else {
-                    saved.element.style.removeProperty('background-color');
-                }
-            }
-
-            if (this._savedStyles.length > 0) {
-                console.log(`[VideoProxy] Restored ${this._savedStyles.length} ancestor styles for ${this.videoId}`);
             }
             this._savedStyles = [];
+            this._transparent = false;
         }
 
         /**
          * Start observing the video element for position/size changes
          */
         startObserving() {
+            this.stopObserving();
             // Resize observer for size changes
             this._resizeObserver = new ResizeObserver(() => {
                 this._boundUpdatePosition();
@@ -976,6 +1081,7 @@
                 for (const entry of entries) {
                     this._visible = entry.isIntersecting;
                     bridge.setVisibility(this.videoId, this._visible);
+                    this._textTrackList._renderCues();
                 }
             }, { threshold: [0, 0.1, 0.5, 1.0] });
             this._intersectionObserver.observe(this.originalVideo);
@@ -1024,6 +1130,7 @@
                 this._bounds = newBounds;
                 bridge.updateBounds(this.videoId, JSON.stringify(newBounds));
             }
+            this._textTrackList._renderCues();
         }
 
         /**
@@ -1041,12 +1148,10 @@
          * Clean up resources
          */
         destroy() {
-            this.stopObserving();
-            this.restoreTransparency();
-            if (this._nativeCreated) {
-                bridge.onVideoElementDestroyed(this.videoId);
-                this._nativeCreated = false;
-            }
+            if (this._destroyed) return;
+            this.releaseNativePlayer();
+            this._destroyed = true;
+            this._paused = true;
         }
     }
 
@@ -1057,47 +1162,19 @@
         return {
             // Source property
             src: {
-                get() { return state._src; },
-                set(value) {
-                    state._src = value;
-
-                    if (value && value.startsWith('blob:') && currentPlaybackContext && bridge.isEnabled()) {
-                        // blob: URL from hls.js (MSE transcoding) — resolve the real
-                        // direct-play URL via the Jellyfin API on the native side,
-                        // similar to how the external player works.
-                        console.log('[VideoProxy] Detected blob URL for ' + state.videoId +
-                            ', resolving via API (itemId=' + currentPlaybackContext.itemId + ')');
-                        state.ensureNativePlayer();
-                        state.isProxied = true;
-                        bridge.resolveAndSetSource(
-                            state.videoId,
-                            currentPlaybackContext.itemId,
-                            currentPlaybackContext.mediaSourceId
-                        );
-                        // Don't make transparent yet — wait for onFirstFrameRendered
-                        // so the episode backdrop image stays visible until ExoPlayer
-                        // has actual video content to display.
-                        state.startObserving();
-                    } else if (value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value)) {
-                        // Direct HTTP(S) URL — proxy directly to ExoPlayer
-                        state.ensureNativePlayer();
-                        state.isProxied = true;
-                        bridge.setSource(state.videoId, value);
-                        // Don't make transparent yet — wait for onFirstFrameRendered
-                        // so the episode backdrop image stays visible until ExoPlayer
-                        // has actual video content to display.
-                        state.startObserving();
-                    } else {
-                        state.isProxied = false;
-                        state.restoreTransparency();
-                        state.stopObserving();
-                    }
-                }
+                get() { return state.isProxied ? state._src : state.nativeGet('src'); },
+                set(value) { state.setSource(value); }
+            },
+            currentSrc: {
+                get() { return state.isProxied ? state._src : state.nativeGet('currentSrc'); }
+            },
+            error: {
+                get() { return state.isProxied ? state._error : state.nativeGet('error'); }
             },
 
             // Current time
             currentTime: {
-                get() { return state._currentTime; },
+                get() { return state.isProxied ? state._currentTime : state.nativeGet('currentTime'); },
                 set(value) {
                     state._currentTime = value;
                     if (state.isProxied) {
@@ -1106,99 +1183,125 @@
                         state.dispatchEvent('seeking');
                         bridge.seek(state.videoId, Math.floor(value * 1000));
                     }
+                    if (!state.isProxied) state.nativeSet('currentTime', value);
                     state._textTrackList._checkCueChanges();
                 }
             },
 
             // Seeking state (read-only)
             seeking: {
-                get() { return state._seeking; }
+                get() { return state.isProxied ? state._seeking : state.nativeGet('seeking'); }
             },
 
             // Duration (read-only from JS perspective)
             duration: {
-                get() { return state._duration; },
+                get() { return state.isProxied ? state._duration : state.nativeGet('duration'); },
                 set(value) { state._duration = value; }
             },
 
             // Paused state
             paused: {
-                get() { return state._paused; },
+                get() { return state.isProxied ? state._paused : state.nativeGet('paused'); },
                 set(value) { state._paused = value; }
             },
 
             // Ended state
             ended: {
-                get() { return state._ended; },
+                get() { return state.isProxied ? state._ended : state.nativeGet('ended'); },
                 set(value) { state._ended = value; }
             },
 
             // Volume
             volume: {
-                get() { return state._volume; },
+                get() { return state.isProxied ? state._volume : state.nativeGet('volume'); },
                 set(value) {
                     state._volume = Math.max(0, Math.min(1, value));
                     if (state.isProxied) {
-                        bridge.setVolume(state.videoId, state._volume);
+                        bridge.setVolume(state.videoId, state._muted ? 0 : state._volume);
+                        state.dispatchEvent('volumechange');
+                    } else {
+                        state.nativeSet('volume', state._volume);
                     }
                 }
             },
 
             // Muted
             muted: {
-                get() { return state._muted; },
+                get() { return state.isProxied ? state._muted : state.nativeGet('muted'); },
                 set(value) {
                     state._muted = value;
                     if (state.isProxied) {
                         bridge.setVolume(state.videoId, value ? 0 : state._volume);
+                        state.dispatchEvent('volumechange');
+                    } else {
+                        state.nativeSet('muted', value);
                     }
                 }
             },
 
             // Playback rate
             playbackRate: {
-                get() { return state._playbackRate; },
+                get() { return state.isProxied ? state._playbackRate : state.nativeGet('playbackRate'); },
                 set(value) {
-                    state._playbackRate = value;
+                    state._playbackRate = state.isProxied ? Math.max(0.25, Math.min(2, value)) : value;
                     if (state.isProxied) {
-                        bridge.setPlaybackRate(state.videoId, value);
+                        bridge.setPlaybackRate(state.videoId, state._playbackRate);
+                        state.dispatchEvent('ratechange');
+                    } else {
+                        state.nativeSet('playbackRate', value);
                     }
                 }
             },
 
             // Ready state
             readyState: {
-                get() { return state._readyState; },
+                get() { return state.isProxied ? state._readyState : state.nativeGet('readyState'); },
                 set(value) { state._readyState = value; }
             },
 
             // Video dimensions (intrinsic video size from ExoPlayer)
             videoWidth: {
-                get() { return state._nativeVideoWidth || state._bounds.width; }
+                get() { return state.isProxied ? state._nativeVideoWidth : state.nativeGet('videoWidth'); }
             },
             videoHeight: {
-                get() { return state._nativeVideoHeight || state._bounds.height; }
+                get() { return state.isProxied ? state._nativeVideoHeight : state.nativeGet('videoHeight'); }
             },
 
-            // Buffered (stub)
+            // Advertise native seeking so the web client uses currentTime instead
+            // of reloading the source and destroying the SurfaceView on every seek.
+            seekable: {
+                get() {
+                    if (!state.isProxied) return state.nativeGet('seekable');
+                    const end = state._seekable && Number.isFinite(state._duration) ? state._duration : 0;
+                    return {
+                        length: end > 0 ? 1 : 0,
+                        start(index) { if (index !== 0 || end <= 0) throw new DOMException('Invalid range', 'IndexSizeError'); return 0; },
+                        end(index) { if (index !== 0 || end <= 0) throw new DOMException('Invalid range', 'IndexSizeError'); return end; }
+                    };
+                }
+            },
+
+            // Buffered range reported by ExoPlayer
             buffered: {
                 get() {
+                    if (!state.isProxied) return state.nativeGet('buffered');
+                    const end = state._buffered;
                     return {
-                        length: state._duration > 0 ? 1 : 0,
-                        start: () => 0,
-                        end: () => state._duration
+                        length: end > 0 ? 1 : 0,
+                        start(index) { if (index !== 0 || end <= 0) throw new DOMException('Invalid range', 'IndexSizeError'); return 0; },
+                        end(index) { if (index !== 0 || end <= 0) throw new DOMException('Invalid range', 'IndexSizeError'); return end; }
                     };
                 }
             },
 
             // Audio tracks - proxied from ExoPlayer
             audioTracks: {
-                get() { return state._audioTrackList; }
+                get() { return state.isProxied ? state._audioTrackList : state.nativeGet('audioTracks'); }
             },
 
             // Text tracks - proxied from ExoPlayer
             textTracks: {
-                get() { return state._textTrackList; }
+                get() { return state.isProxied ? state._textTrackList : state.nativeGet('textTracks'); }
             }
         };
     }
@@ -1210,10 +1313,24 @@
         const originalPlay = video.play.bind(video);
         const originalPause = video.pause.bind(video);
         const originalLoad = video.load.bind(video);
+        const originalSetAttribute = video.setAttribute.bind(video);
+        const originalRemoveAttribute = video.removeAttribute.bind(video);
+
+        video.setAttribute = function(name, value) {
+            if (String(name).toLowerCase() === 'src') state.setSource(value);
+            else originalSetAttribute(name, value);
+        };
+        video.removeAttribute = function(name) {
+            if (String(name).toLowerCase() === 'src') state.setSource('');
+            originalRemoveAttribute(name);
+        };
 
         video.play = function() {
             if (state.isProxied) {
-                state._paused = false;
+                if (state._paused) {
+                    state._paused = false;
+                    state.dispatchEvent('play');
+                }
                 state._ended = false;
                 bridge.play(state.videoId);
                 return Promise.resolve();
@@ -1223,7 +1340,11 @@
 
         video.pause = function() {
             if (state.isProxied) {
-                state._paused = true;
+                if (!state._paused) {
+                    state._paused = true;
+                    state._playing = false;
+                    state.dispatchEvent('pause');
+                }
                 bridge.pause(state.videoId);
                 return;
             }
@@ -1232,11 +1353,7 @@
 
         video.load = function() {
             if (state.isProxied) {
-                // Reset state
-                state._currentTime = 0;
-                state._duration = 0;
-                state._readyState = 0;
-                state._ended = false;
+                state.setSource(state._src);
                 return;
             }
             return originalLoad();
@@ -1260,13 +1377,6 @@
         const originalAddTextTrack = video.addTextTrack?.bind(video);
         video.addTextTrack = function(kind, label, language) {
             if (state.isProxied) {
-                // If fetch interception already resolved a native override, keep it.
-                // Otherwise, try to resolve one now by matching language/label
-                // against embedded SRT ExoPlayer tracks.
-                if (state._activeNativeSubtitleIndex < 0 && language) {
-                    tryResolveNativeSubtitle(state, language, label);
-                }
-
                 const trackInfo = {
                     index: state._textTrackList._tracks.length,
                     label: label || '',
@@ -1295,6 +1405,8 @@
     function proxyVideoElement(video) {
         // Skip if already proxied
         if (video._videoProxyState) {
+            const state = video._videoProxyState;
+            if (state._destroyed) state.setSource(state._src);
             return video;
         }
 
@@ -1305,11 +1417,13 @@
         video._videoProxyState = state;
         proxiedVideos.set(videoId, state);
 
+        const existingSrc = state.nativeGet('src');
+
         // Apply property descriptors
         const descriptors = createPropertyDescriptors(state);
         for (const [prop, descriptor] of Object.entries(descriptors)) {
             try {
-                Object.defineProperty(video, prop, descriptor);
+                Object.defineProperty(video, prop, { ...descriptor, configurable: true });
             } catch (e) {
                 console.warn(`[VideoProxy] Failed to define property ${prop}:`, e);
             }
@@ -1321,11 +1435,12 @@
         // Handle removal from DOM
         const originalRemove = video.remove.bind(video);
         video.remove = function() {
-            state.destroy();
-            proxiedVideos.delete(videoId);
-            return originalRemove();
+            const result = originalRemove();
+            if (!video.isConnected) state.destroy();
+            return result;
         };
 
+        if (existingSrc) state.setSource(existingSrc);
         console.log(`[VideoProxy] Proxied video element: ${videoId}`);
         return video;
     }
@@ -1367,9 +1482,9 @@
                     }
                 }
             }
-            // Handle removed nodes
+            // A move within the document is not a player destruction.
             for (const node of mutation.removedNodes) {
-                if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.nodeType === Node.ELEMENT_NODE && !node.isConnected) {
                     // Check the node itself
                     if (node.tagName === 'VIDEO' && node._videoProxyState) {
                         node._videoProxyState.destroy();
@@ -1405,86 +1520,70 @@
          */
         onStateChange(videoId, state) {
             const proxyState = proxiedVideos.get(videoId);
-            if (!proxyState) return;
-
+            if (!proxyState || !proxyState.isProxied) return;
+            const previousTime = proxyState._currentTime;
+            let seekCompleted = false;
+            if (state.seekable !== undefined) proxyState._seekable = state.seekable;
             if (state.currentTime !== undefined) {
                 if (proxyState._seeking) {
-                    // While seeking, keep showing the seek target (_currentTime set
-                    // by the JS setter). Only accept the native position once ExoPlayer
-                    // explicitly signals completion via seeked=true — this avoids the
-                    // progress bar flashing to 00:00 if ExoPlayer transiently reports
-                    // position 0 during seek processing.
                     if (state.seeked) {
                         proxyState._seeking = false;
                         proxyState._seekCompletedAt = Date.now();
-                        proxyState.dispatchEvent('seeked');
+                        seekCompleted = true;
                     }
                 } else {
-                    const newTime = state.currentTime / 1000;
-                    // Post-seek guard: ExoPlayer may transiently report position 0
-                    // in the first few state updates after seek completes. If we just
-                    // finished a seek to a non-zero position, reject 0-position updates
-                    // for a short grace period to avoid the progress bar flashing.
-                    if (proxyState._seekCompletedAt > 0) {
-                        const elapsed = Date.now() - proxyState._seekCompletedAt;
-                        if (elapsed < 1500 && newTime < 1 && proxyState._currentTime > 5) {
-                            console.log('[VideoProxy] Rejected transient zero position ' +
-                                elapsed + 'ms after seek (currentTime=' + proxyState._currentTime + ')');
-                        } else {
-                            proxyState._currentTime = newTime;
-                            proxyState._seekCompletedAt = 0;
-                        }
-                    } else {
-                        proxyState._currentTime = newTime;
-                    }
+                    const time = state.currentTime / 1000;
+                    const rejectZero = proxyState._seekCompletedAt > 0 &&
+                        Date.now() - proxyState._seekCompletedAt < 1500 && time < 1 && previousTime > 5;
+                    if (!rejectZero) proxyState._currentTime = time;
                 }
-                proxyState.dispatchEvent('timeupdate');
-                proxyState._textTrackList._checkCueChanges();
             }
-            if (state.duration !== undefined) {
+            if (state.duration !== undefined && proxyState._duration !== state.duration / 1000) {
                 proxyState._duration = state.duration / 1000;
                 proxyState.dispatchEvent('durationchange');
             }
-            if (state.paused !== undefined) {
+            if (state.buffered !== undefined && proxyState._buffered !== state.buffered / 1000) {
+                proxyState._buffered = state.buffered / 1000;
+                proxyState.dispatchEvent('progress');
+            }
+            if (state.paused !== undefined && proxyState._paused !== state.paused) {
                 proxyState._paused = state.paused;
                 proxyState.dispatchEvent(state.paused ? 'pause' : 'play');
             }
-            if (state.ended !== undefined && state.ended) {
+            if (state.ended && !proxyState._ended) {
                 proxyState._ended = true;
                 proxyState._paused = true;
                 proxyState.dispatchEvent('ended');
             }
             if (state.readyState !== undefined) {
-                const prevReadyState = proxyState._readyState;
+                const previousReadyState = proxyState._readyState;
                 proxyState._readyState = state.readyState;
-                // Fallback: if native somehow didn't send seeked=true but the player
-                // transitioned BUFFERING→READY, clear _seeking via the readyState
-                // transition. Set the post-seek guard to reject transient 0 positions.
-                if (proxyState._seeking && prevReadyState <= 2 && state.readyState >= 4) {
+                if (proxyState._seeking && previousReadyState <= 2 && state.readyState >= 4) {
                     proxyState._seeking = false;
                     proxyState._seekCompletedAt = Date.now();
-                    proxyState.dispatchEvent('seeked');
+                    seekCompleted = true;
                 }
-                if (state.readyState >= 1) {
-                    proxyState.dispatchEvent('loadedmetadata');
-                }
-                if (state.readyState >= 3) {
-                    proxyState.dispatchEvent('canplay');
-                }
-                if (state.readyState >= 4) {
-                    proxyState.dispatchEvent('canplaythrough');
-                }
+                if (previousReadyState < 1 && state.readyState >= 1) proxyState.dispatchEvent('loadedmetadata');
+                if (previousReadyState < 2 && state.readyState >= 2) proxyState.dispatchEvent('loadeddata');
+                if (previousReadyState < 3 && state.readyState >= 3) proxyState.dispatchEvent('canplay');
+                if (previousReadyState < 4 && state.readyState >= 4) proxyState.dispatchEvent('canplaythrough');
             }
+            if (seekCompleted) proxyState.dispatchEvent('seeked');
+            if (seekCompleted || previousTime !== proxyState._currentTime) {
+                proxyState.dispatchEvent('timeupdate');
+                proxyState._textTrackList._checkCueChanges();
+            }
+            const playing = !proxyState._paused && !proxyState._ended && !proxyState._buffering && proxyState._readyState >= 3;
+            if (playing && !proxyState._playing) proxyState.dispatchEvent('playing');
+            proxyState._playing = playing;
         },
 
-        /**
-         * Called when buffering state changes
-         */
         onBuffering(videoId, isBuffering) {
             const proxyState = proxiedVideos.get(videoId);
-            if (!proxyState) return;
-
-            proxyState.dispatchEvent(isBuffering ? 'waiting' : 'playing');
+            if (!proxyState || !proxyState.isProxied) return;
+            if (isBuffering && !proxyState._buffering && !proxyState._paused) proxyState.dispatchEvent('waiting');
+            proxyState._buffering = isBuffering;
+            if (isBuffering) proxyState._playing = false;
         },
 
         /**
@@ -1494,10 +1593,9 @@
             const proxyState = proxiedVideos.get(videoId);
             if (!proxyState) return;
 
-            const error = new MediaError();
-            error.code = errorCode;
-            error.message = errorMessage;
-            proxyState.originalVideo.error = error;
+            proxyState._error = Object.freeze({ code: errorCode, message: errorMessage });
+            proxyState._playing = false;
+            proxyState._seeking = false;
             proxyState.dispatchEvent('error');
         },
 
@@ -1565,15 +1663,15 @@
                     // Pass server stream indices so ProxyAudioTrack.id matches
                     // the server's MediaStream.Index (used by the web client's
                     // setAudioStreamIndex for track matching).
-                    const serverAudioIndices = currentPlaybackContext?.audioStreamIndices;
+                    const serverAudioIndices = proxyState._playbackContext?.audioStreamIndices;
                     proxyState._audioTrackList._update(tracks.audioTracks, serverAudioIndices);
                     console.log(`[VideoProxy] Updated ${tracks.audioTracks.length} audio tracks for ${videoId}` +
                         (serverAudioIndices ? ` (server indices: [${serverAudioIndices.join(',')}])` : ''));
                 }
 
                 if (tracks.subtitleTracks && proxyState._textTrackList) {
-                    const serverSubtitleIndices = currentPlaybackContext?.subtitleStreamIndices;
-                    const serverSubtitleStreams = currentPlaybackContext?.subtitleStreams;
+                    const serverSubtitleIndices = proxyState._playbackContext?.subtitleStreamIndices;
+                    const serverSubtitleStreams = proxyState._playbackContext?.subtitleStreams;
                     proxyState._textTrackList._update(tracks.subtitleTracks, serverSubtitleIndices, serverSubtitleStreams);
 
                     const embeddedCount = serverSubtitleStreams
@@ -1643,16 +1741,10 @@
     });
 
     /**
-     * Inject "ExoPlayer Debug" toggle into Jellyfin's OSD settings menu.
-     *
-     * Strategy:
-     * 1. Find the OSD settings button (gear icon / "..." button) and intercept its click.
-     * 2. When a settings dialog or actionSheet appears, inject our menu item.
-     * 3. Use MutationObserver as a fallback to catch dynamically created menus.
+     * Inject the ExoPlayer debug toggle into Jellyfin's video settings action sheet.
+     * Identify the menu by its playback-data item, independent of the UI language.
      */
     (function injectDebugMenuItem() {
-        let debugActive = false;
-
         /**
          * Create a menu item by cloning an existing item's structure,
          * so it inherits the same classes, icons layout and CSS.
@@ -1662,6 +1754,10 @@
          */
         function createMenuItem(container) {
             const template = container.querySelector('button');
+            const language = (document.documentElement.lang || navigator.language || '').toLowerCase();
+            const label = language.startsWith('zh')
+                ? (/^zh-(tw|hk|mo|hant)(-|$)/.test(language) ? 'ExoPlayer 偵錯' : 'ExoPlayer 调试')
+                : 'ExoPlayer Debug';
             let btn;
 
             if (template) {
@@ -1673,16 +1769,23 @@
                 // Remove any id to avoid duplicates
                 btn.removeAttribute('id');
                 btn.removeAttribute('data-id');
+                btn.removeAttribute('autofocus');
+                btn.removeAttribute('onclick');
+                // Do not inherit values such as "Auto" or a selected quality.
+                btn.querySelectorAll('.listItemAside, .actionSheetItemAsideText, .secondary')
+                    .forEach(element => element.remove());
                 // Replace all text content while preserving icon structure
                 const textEl = btn.querySelector('.actionSheetItemText') ||
                     btn.querySelector('[class*="ItemText"]') ||
                     btn.lastElementChild ||
                     btn;
-                textEl.textContent = 'ExoPlayer Debug';
+                textEl.textContent = label;
                 // Update icon if present
                 const iconEl = btn.querySelector('.material-icons, [class*="Icon"]');
                 if (iconEl && iconEl !== textEl) {
-                    iconEl.textContent = 'bug_report';
+                    iconEl.className = 'actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons bug_report';
+                    iconEl.textContent = '';
+                    iconEl.style.removeProperty('visibility');
                 }
                 // Clear any checked/selected state
                 btn.classList.remove('selected', 'active', 'checked');
@@ -1693,7 +1796,7 @@
                 btn = document.createElement('button');
                 btn.className = 'btnVideoProxyDebug';
                 btn.type = 'button';
-                btn.textContent = debugActive ? 'ExoPlayer Debug ✓' : 'ExoPlayer Debug';
+                btn.textContent = label;
             }
 
             // Replace all event listeners by cloning without listeners
@@ -1701,7 +1804,6 @@
             clean.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                debugActive = !debugActive;
                 try {
                     bridge.toggleDebugInfo();
                 } catch (err) {
@@ -1732,40 +1834,23 @@
         }
 
         /**
-         * Try to inject our menu item into an actionSheet or dialog.
-         * @param {Element} container - The menu/dialog element
+         * Try to inject our menu item into the video settings action sheet.
+         * @param {Element} container - The action sheet element
          */
         function tryInjectIntoMenu(container) {
             // Skip if already injected
             if (container.querySelector('.btnVideoProxyDebug')) return;
-            // Only inject when video is active
-            if (!proxiedVideos.size && !document.querySelector('video')) return;
+            // Only expose native debug info while an ExoPlayer proxy is active.
+            if (!Array.from(proxiedVideos.values()).some(state => state.isProxied)) return;
 
-            // Look for the items container within the actionSheet or dialog
-            const itemsContainer = container.querySelector('.actionSheetScroller') ||
-                container.querySelector('.dialogContent') ||
-                container.querySelector('.formDialogContent') ||
-                container;
+            const itemsContainer = container.querySelector('.actionSheetScroller');
 
             if (!itemsContainer) return;
 
-            // Heuristic: check if this looks like a video player settings menu.
-            // Primary condition: there is at least one active proxied video — this
-            // is language-agnostic and works in all locales. The text-keyword check
-            // is retained as an additional signal for extra safety in edge cases
-            // where a menu might open while a video is active but the menu is
-            // unrelated to the player.
-            const buttons = itemsContainer.querySelectorAll('button, .listItem, [data-action]');
-            if (buttons.length === 0) return;
-
-            const menuText = itemsContainer.textContent.toLowerCase();
-            // optimize later
-            const isPlayerMenu = menuText.includes('quality') ||
-                menuText.includes('质量') ||
-                // Also check if we're in video OSD context
-                !!document.querySelector('.videoOsdBottom, [class*="videoOsd"]');
-
-            if (!isPlayerMenu) return;
+            // The video settings menu always includes PlaybackData (id="stats"),
+            // even when quality/transcoding is unavailable. Its submenus and
+            // unrelated dialogs do not contain this item.
+            if (!itemsContainer.querySelector('.actionSheetMenuItem[data-id="stats"]')) return;
 
             // Add debug menu item at the end of the menu
             const menuItem = createMenuItem(itemsContainer);
@@ -1801,33 +1886,22 @@
             console.log('[VideoProxy] Debug menu item injected into settings menu');
         }
 
-        // Observe DOM for new actionSheets / dialogs appearing
+        // Observe both new action sheets and items populated after sheet creation.
         const menuObserver = new MutationObserver((mutations) => {
+            const menus = new Set();
             for (const mutation of mutations) {
+                const currentMenu = mutation.target.closest?.('.actionSheet');
+                if (currentMenu) menus.add(currentMenu);
+
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType !== Node.ELEMENT_NODE) continue;
-
-                    // Direct match: the added node is an actionSheet or dialog
-                    if (node.classList) {
-                        if (node.classList.contains('actionSheet') ||
-                            node.classList.contains('dialog') ||
-                            node.classList.contains('dialogContainer') ||
-                            node.classList.contains('actionsheet-scroller')) {
-                            // Small delay to let the menu populate its items
-                            setTimeout(() => tryInjectIntoMenu(node), 100);
-                            continue;
-                        }
-                    }
-
-                    // Indirect match: the added node contains an actionSheet or dialog
-                    const menus = node.querySelectorAll?.('.actionSheet, .dialog, .dialogContainer');
-                    if (menus && menus.length > 0) {
-                        menus.forEach(menu => {
-                            setTimeout(() => tryInjectIntoMenu(menu), 100);
-                        });
-                    }
+                    if (node.matches('.actionSheet')) menus.add(node);
+                    node.querySelectorAll('.actionSheet').forEach(menu => menus.add(menu));
                 }
             }
+            menus.forEach(menu => {
+                if (menu.isConnected) tryInjectIntoMenu(menu);
+            });
         });
 
         menuObserver.observe(document.documentElement, {
