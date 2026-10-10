@@ -89,6 +89,7 @@ class VideoOverlayManager(
 
     // Bitrate indicator (top-right corner, shown during buffering)
     private var bitrateIndicatorView: TextView? = null
+    private var bitrateIndicatorContainer: View? = null
     private var bitrateIndicatorVisible = false
 
     /**
@@ -671,8 +672,9 @@ class VideoOverlayManager(
     /**
      * Set the bitrate indicator TextView (for buffering bitrate display in top-right corner).
      */
-    fun setBitrateIndicatorView(textView: TextView) {
+    fun setBitrateIndicatorView(textView: TextView, container: View) {
         bitrateIndicatorView = textView
+        bitrateIndicatorContainer = container
     }
 
     /**
@@ -681,6 +683,7 @@ class VideoOverlayManager(
      */
     private fun updateBitrateIndicator(videoId: String, isBuffering: Boolean) {
         val indicator = bitrateIndicatorView ?: return
+        val container = bitrateIndicatorContainer ?: return
 
         if (isBuffering) {
             bitrateIndicatorVisible = true
@@ -691,7 +694,6 @@ class VideoOverlayManager(
                 val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
                 val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
                 indicator.text = buildString {
-                    append("⏳ ")
                     append(bandwidthStr)
                     if (videoBitrateBps > 0) {
                         append(" / ")
@@ -699,12 +701,12 @@ class VideoOverlayManager(
                     }
                 }
             } else {
-                indicator.text = "⏳ ..."
+                indicator.text = "..."
             }
-            indicator.visibility = View.VISIBLE
+            container.visibility = View.VISIBLE
         } else {
             bitrateIndicatorVisible = false
-            indicator.visibility = View.GONE
+            container.visibility = View.GONE
         }
     }
 
@@ -725,7 +727,6 @@ class VideoOverlayManager(
         val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
         val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
         indicator.text = buildString {
-            append("⏳ ")
             append(bandwidthStr)
             if (videoBitrateBps > 0) {
                 append(" / ")
@@ -968,7 +969,9 @@ class VideoOverlayManager(
         debugInfoView = null
         debugContainerView = null
         debugInfoVisible = false
+        bitrateIndicatorContainer?.visibility = View.GONE
         bitrateIndicatorView = null
+        bitrateIndicatorContainer = null
         bitrateIndicatorVisible = false
     }
 
