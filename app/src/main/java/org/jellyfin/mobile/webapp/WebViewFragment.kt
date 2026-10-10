@@ -20,8 +20,10 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.webkit.WebViewAssetLoader.AssetsPathHandler
 import androidx.webkit.WebViewCompat
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.jellyfin.mobile.MainViewModel
 import org.jellyfin.mobile.R
@@ -31,14 +33,15 @@ import org.jellyfin.mobile.bridge.ExternalPlayer
 import org.jellyfin.mobile.bridge.MediaSegments
 import org.jellyfin.mobile.bridge.NativeInterface
 import org.jellyfin.mobile.bridge.NativePlayer
+import org.jellyfin.mobile.data.entity.ServerEntity
+import org.jellyfin.mobile.databinding.FragmentWebviewBinding
+import org.jellyfin.mobile.network.CustomHosts
+import org.jellyfin.mobile.network.HostsWebViewProxy
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
 import org.jellyfin.mobile.player.source.MediaSourceResolver
 import org.jellyfin.mobile.player.videoproxy.VideoOverlayManager
 import org.jellyfin.mobile.player.videoproxy.VideoProxyBridge
 import org.jellyfin.mobile.player.videoproxy.VideoProxyEvent
-import org.jellyfin.mobile.data.entity.ServerEntity
-import org.jellyfin.sdk.api.client.ApiClient
-import org.jellyfin.mobile.databinding.FragmentWebviewBinding
 import org.jellyfin.mobile.setup.ConnectFragment
 import org.jellyfin.mobile.utils.AndroidVersion
 import org.jellyfin.mobile.utils.BackPressInterceptor
@@ -53,13 +56,18 @@ import org.jellyfin.mobile.utils.fadeIn
 import org.jellyfin.mobile.utils.isOutdated
 import org.jellyfin.mobile.utils.requestNoBatteryOptimizations
 import org.jellyfin.mobile.utils.runOnUiThread
-import kotlinx.coroutines.channels.Channel
+import org.jellyfin.sdk.api.client.ApiClient
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
 import org.koin.core.qualifier.named
+import java.net.InetAddress
 
 class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClient.FileChooserListener {
     val appPreferences: AppPreferences by inject()
+    private val customHosts: CustomHosts by inject()
+    private val hostsWebViewProxy: HostsWebViewProxy by inject()
+    private val mediaSourceFactory: MediaSource.Factory by inject()
+    private var loadedHosts: Map<String, InetAddress>? = null
     private val mainViewModel: MainViewModel by activityViewModel()
     private val webappFunctionChannel: WebappFunctionChannel by inject()
     private lateinit var assetsPathHandler: AssetsPathHandler
@@ -134,6 +142,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         }.root
     }
 
+    @Suppress("LongMethod")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val binding = webViewBinding!!
@@ -155,6 +164,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 mediaSourceResolver = mediaSourceResolver,
                 apiClient = apiClient,
                 deviceProfileBuilder = deviceProfileBuilder,
+                mediaSourceFactory = mediaSourceFactory,
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, binding.videoSubtitleContainer, webView)
                 manager.setDebugInfoView(binding.videoProxyDebugInfo, binding.videoProxyDebugContainer)
@@ -165,7 +175,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 binding.videoProxyDebugClose.setOnClickListener {
                     manager.hideDebugInfo()
                 }
-                
+
                 // Forward events from bridge to manager
                 viewLifecycleOwner.lifecycleScope.launch {
                     for (event in videoProxyEventChannel) {
@@ -224,6 +234,14 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         return connected && webappFunctionChannel.goBack()
     }
 
+    override fun onResume() {
+        super.onResume()
+        val webView = webViewBinding?.webView ?: return
+        if (loadedHosts != null && loadedHosts != customHosts.entries) {
+            loadWithHosts(webView)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         videoOverlayManager?.pauseAll()
@@ -256,9 +274,25 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
         }
 
-        loadUrl("${server.hostname.trimEnd('/')}/")
-        postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)
-        postDelayed(showLoadingContainerRunnable, Constants.SHOW_PROGRESS_BAR_DELAY)
+        loadWithHosts(this)
+    }
+
+    private fun loadWithHosts(webView: WebView) {
+        webView.removeCallbacks(timeoutRunnable)
+        webView.removeCallbacks(showLoadingContainerRunnable)
+        webView.stopLoading()
+        hostsWebViewProxy.ensureApplied { success ->
+            if (webViewBinding?.webView !== webView) return@ensureApplied
+            if (!success) {
+                Toast.makeText(requireContext(), R.string.custom_hosts_proxy_failed, Toast.LENGTH_LONG).show()
+                handleError()
+                return@ensureApplied
+            }
+            loadedHosts = customHosts.entries
+            webView.loadUrl("${server.hostname.trimEnd('/')}/")
+            webView.postDelayed(timeoutRunnable, Constants.INITIAL_CONNECTION_TIMEOUT)
+            webView.postDelayed(showLoadingContainerRunnable, Constants.SHOW_PROGRESS_BAR_DELAY)
+        }
     }
 
     private fun showOutdatedWebViewDialog(webView: WebView) {

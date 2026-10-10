@@ -169,4 +169,13 @@
     <string name="download_location_not_set_description">如需下载媒体，请选择用于存储媒体文件的文件夹。</string>
     <string name="download_location_inaccessible">无法访问下载地址</string>
     <string name="download_location_inaccessible_description">当前选择的下载位置已无法访问。请选择其他文件夹以继续下载。</string>
+    <string name="pref_category_network">网络</string>
+    <string name="pref_custom_hosts_enabled">自定义 hosts</string>
+    <string name="pref_custom_hosts_summary">为本 App 使用自定义域名映射。新连接使用修改后的映射，返回网页时重新加载。</string>
+    <string name="pref_custom_hosts_entries">编辑 hosts</string>
+    <string name="pref_custom_hosts_entries_summary">将域名映射到 IPv4 或 IPv6 地址。</string>
+    <string name="custom_hosts_format">每行填写一个 IP 地址，后接一个或多个域名。# 开头为注释。*.example.com 匹配子域名，不包含 example.com 本身；精确域名优先，其次匹配范围最具体的通配符。同一规则以最后一条配置为准，未配置的域名使用系统 DNS。</string>
+    <string name="custom_hosts_invalid_line">第 %1$s 行 hosts 格式错误，请填写 IP 地址和域名。</string>
+    <string name="custom_hosts_webview_unsupported">请更新 Android 系统 WebView 后启用自定义 hosts。</string>
+    <string name="custom_hosts_proxy_failed">无法为 WebView 应用自定义 hosts，请检查 hosts 设置和 WebView 版本。</string>
 </resources>

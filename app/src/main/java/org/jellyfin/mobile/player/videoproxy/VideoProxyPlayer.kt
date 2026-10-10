@@ -20,6 +20,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.ui.SubtitleView
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
@@ -121,6 +122,7 @@ class VideoProxyPlayer(
     private val videoId: String,
     private val preferHardwareDecoding: Boolean,
     private val callback: VideoProxyPlayerCallback,
+    private val mediaSourceFactory: MediaSource.Factory,
 ) : Player.Listener {
 
     companion object {
@@ -194,6 +196,7 @@ class VideoProxyPlayer(
         }
 
         player = ExoPlayer.Builder(context, renderersFactory).apply {
+            setMediaSourceFactory(mediaSourceFactory)
             setUsePlatformDiagnostics(false)
         }.build().apply {
             addListener(this@VideoProxyPlayer)

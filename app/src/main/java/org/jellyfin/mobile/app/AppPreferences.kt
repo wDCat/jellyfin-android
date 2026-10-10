@@ -50,6 +50,17 @@ class AppPreferences(context: Context) {
         }
     }
 
+    val customHostsEnabled: Boolean
+        get() = sharedPreferences.getBoolean(Constants.PREF_CUSTOM_HOSTS_ENABLED, false)
+
+    var customHostsEntries: String
+        get() = sharedPreferences.getString(Constants.PREF_CUSTOM_HOSTS_ENTRIES, "").orEmpty()
+        set(value) = sharedPreferences.edit { putString(Constants.PREF_CUSTOM_HOSTS_ENTRIES, value) }
+
+    fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+    }
+
     var currentServerId: Long?
         get() = sharedPreferences.getLong(Constants.PREF_SERVER_ID, -1).takeIf { it >= 0 }
         set(value) {

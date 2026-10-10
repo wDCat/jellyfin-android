@@ -196,4 +196,13 @@
     <string name="download_location_not_set_description">To download media, please select a folder where the files should be stored.</string>
     <string name="download_location_inaccessible">Download location inaccessible</string>
     <string name="download_location_inaccessible_description">The selected download location is no longer accessible. Please select a different folder to resume downloads.</string>
+    <string name="pref_category_network">Network</string>
+    <string name="pref_custom_hosts_enabled">Custom hosts</string>
+    <string name="pref_custom_hosts_summary">Use custom domain mappings for this app. New connections use the updated mappings. The web client reloads when returning from settings.</string>
+    <string name="pref_custom_hosts_entries">Edit hosts</string>
+    <string name="pref_custom_hosts_entries_summary">Map domain names to IPv4 or IPv6 addresses.</string>
+    <string name="custom_hosts_format">One IP address followed by one or more domain names per line. Comments start with #. Use *.example.com to match subdomains, excluding example.com itself. Exact names take precedence, followed by the most specific wildcard. The last entry for the same pattern wins. Unlisted domains use system DNS.</string>
+    <string name="custom_hosts_invalid_line">Invalid hosts entry on line %1$s. Enter an IP address followed by domain names.</string>
+    <string name="custom_hosts_webview_unsupported">Update Android System WebView to enable custom hosts.</string>
+    <string name="custom_hosts_proxy_failed">Unable to apply custom hosts to WebView. Check your hosts settings and WebView version.</string>
 </resources>

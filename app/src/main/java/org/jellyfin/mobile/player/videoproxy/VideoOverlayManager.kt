@@ -12,6 +12,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,7 @@ import java.util.concurrent.ConcurrentHashMap
  * that render on top of the WebView.
  */
 @UnstableApi
+@Suppress("LongParameterList")
 class VideoOverlayManager(
     private val context: Context,
     private val appPreferences: AppPreferences,
@@ -47,6 +49,7 @@ class VideoOverlayManager(
     private val mediaSourceResolver: MediaSourceResolver,
     private val apiClient: ApiClient,
     private val deviceProfileBuilder: DeviceProfileBuilder,
+    private val mediaSourceFactory: MediaSource.Factory,
 ) : VideoProxyPlayerCallback {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -172,6 +175,7 @@ class VideoOverlayManager(
             videoId = videoId,
             preferHardwareDecoding = appPreferences.videoProxyHardwareDecoding,
             callback = this,
+            mediaSourceFactory = mediaSourceFactory,
         )
         player.initialize()
         players[videoId] = player

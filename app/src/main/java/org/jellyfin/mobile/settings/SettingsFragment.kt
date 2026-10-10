@@ -5,15 +5,17 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.EditText
 import android.widget.FrameLayout
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.fragment.app.Fragment
+import androidx.webkit.WebViewFeature
 import de.Maxr1998.modernpreferences.Preference
 import de.Maxr1998.modernpreferences.PreferencesAdapter
 import de.Maxr1998.modernpreferences.helpers.categoryHeader
@@ -34,6 +36,7 @@ import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.app.StorageManager
 import org.jellyfin.mobile.databinding.FragmentSettingsBinding
 import org.jellyfin.mobile.downloads.DownloadMethod
+import org.jellyfin.mobile.network.HostsParser
 import org.jellyfin.mobile.utils.BackPressInterceptor
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.applyWindowInsetsAsMargins
@@ -106,6 +109,20 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     @Suppress("LongMethod")
     private fun buildSettingsScreen() = screen(requireContext()) {
         collapseIcon = true
+        categoryHeader(PREF_CATEGORY_NETWORK) {
+            titleRes = R.string.pref_category_network
+        }
+        checkBox(Constants.PREF_CUSTOM_HOSTS_ENABLED) {
+            titleRes = R.string.pref_custom_hosts_enabled
+            val supported = WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)
+            enabled = supported
+            summaryRes = if (supported) R.string.pref_custom_hosts_summary else R.string.custom_hosts_webview_unsupported
+        }
+        pref(Constants.PREF_CUSTOM_HOSTS_ENTRIES) {
+            titleRes = R.string.pref_custom_hosts_entries
+            summaryRes = R.string.pref_custom_hosts_entries_summary
+            defaultOnClick { showHostsInputDialog() }
+        }
         categoryHeader(PREF_CATEGORY_MUSIC_PLAYER) {
             titleRes = R.string.pref_category_music_player
         }
@@ -385,6 +402,40 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     }
 
     @Suppress("MagicNumber")
+    private fun showHostsInputDialog() {
+        val editText = EditText(requireContext()).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            gravity = Gravity.TOP or Gravity.START
+            minLines = 6
+            maxLines = 12
+            setText(appPreferences.customHostsEntries)
+            hint = "192.168.1.10 jellyfin.example.com"
+        }
+        val container = FrameLayout(requireContext()).apply {
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, 0)
+            addView(editText)
+        }
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(R.string.pref_custom_hosts_entries)
+            .setMessage(R.string.custom_hosts_format)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val text = editText.text.toString()
+            try {
+                HostsParser.parse(text)
+                appPreferences.customHostsEntries = text
+                dialog.dismiss()
+            } catch (exception: IllegalArgumentException) {
+                editText.error = getString(R.string.custom_hosts_invalid_line, exception.message)
+            }
+        }
+    }
+
+    @Suppress("MagicNumber")
     private fun showNumberInputDialog(
         @StringRes titleRes: Int,
         currentValue: Int,
@@ -417,6 +468,7 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     }
 
     companion object {
+        const val PREF_CATEGORY_NETWORK = "pref_category_network"
         const val PREF_CATEGORY_MUSIC_PLAYER = "pref_category_music"
         const val PREF_CATEGORY_VIDEO_PLAYER = "pref_category_video"
         const val PREF_CATEGORY_DOWNLOADS = "pref_category_downloads"
