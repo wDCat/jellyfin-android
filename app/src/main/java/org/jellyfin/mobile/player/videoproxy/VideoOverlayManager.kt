@@ -33,6 +33,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Manages video overlay views and their corresponding ExoPlayer instances.
@@ -60,6 +63,13 @@ class VideoOverlayManager(
     private var overlayContainer: FrameLayout? = null
     private var subtitleContainer: FrameLayout? = null
     private var webView: WebView? = null
+    private val videoContainers = ConcurrentHashMap<String, FrameLayout>()
+    private val layoutChangeListener = View.OnLayoutChangeListener {
+        _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+        val sizeChanged = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
+        val positionChanged = left != oldLeft || top != oldTop
+        if (sizeChanged || positionChanged) surfaceViews.keys.forEach { reapplyAspectRatio(it) }
+    }
 
     // Video ID -> Player instance
     private val players = ConcurrentHashMap<String, VideoProxyPlayer>()
@@ -110,6 +120,8 @@ class VideoOverlayManager(
         this.overlayContainer = container
         this.subtitleContainer = subtitleContainer
         this.webView = webView
+        container.addOnLayoutChangeListener(layoutChangeListener)
+        webView.addOnLayoutChangeListener(layoutChangeListener)
         
         Timber.d("VideoOverlayManager initialized")
         
@@ -162,8 +174,9 @@ class VideoOverlayManager(
             Timber.d("Releasing existing player for $videoId before re-creating")
             oldPlayer.release()
         }
-        surfaceViews.remove(videoId)?.let { oldSurface ->
-            (oldSurface.parent as? ViewGroup)?.removeView(oldSurface)
+        surfaceViews.remove(videoId)
+        videoContainers.remove(videoId)?.let { oldContainer ->
+            (oldContainer.parent as? ViewGroup)?.removeView(oldContainer)
         }
         subtitleViews.remove(videoId)?.let { oldSubtitle ->
             (oldSubtitle.parent as? ViewGroup)?.removeView(oldSubtitle)
@@ -193,7 +206,10 @@ class VideoOverlayManager(
             visibility = View.GONE
         }
         
-        container.addView(surfaceView)
+        // Crop cover/zoom to this video's box, including for inline videos.
+        val videoContainer = createVideoContainer(surfaceView)
+        container.addView(videoContainer)
+        videoContainers[videoId] = videoContainer
         surfaceViews[videoId] = surfaceView
         player.setSurfaceView(surfaceView)
 
@@ -242,8 +258,9 @@ class VideoOverlayManager(
         videoVisibility.remove(videoId)
         videoNativeSizes.remove(videoId)
 
-        surfaceViews.remove(videoId)?.let { surfaceView ->
-            (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
+        surfaceViews.remove(videoId)
+        videoContainers.remove(videoId)?.let { videoContainer ->
+            (videoContainer.parent as? ViewGroup)?.removeView(videoContainer)
         }
         subtitleViews.remove(videoId)?.let { subtitleView ->
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
@@ -320,6 +337,7 @@ class VideoOverlayManager(
         players[videoId]?.play()
 
         // Show the surface view and subtitle view (already on main thread)
+        videoContainers[videoId]?.visibility = View.VISIBLE
         surfaceViews[videoId]?.visibility = View.VISIBLE
         subtitleViews[videoId]?.visibility = View.VISIBLE
     }
@@ -361,70 +379,52 @@ class VideoOverlayManager(
      */
     private fun updateVideoBounds(videoId: String, bounds: VideoBounds) {
         videoBounds[videoId] = bounds
-
-        surfaceViews[videoId]?.let { applyBoundsToSurfaceView(it, bounds) }
-        subtitleViews[videoId]?.let { applyBoundsToSubtitleView(it, bounds) }
-
-        // Reapply aspect ratio after bounds change
         reapplyAspectRatio(videoId)
     }
 
     /**
-     * Apply bounds to a SurfaceView, converting CSS pixels to device pixels.
+     * Convert CSS pixels using the actual WebView viewport, rather than assuming
+     * its page scale always matches the device density.
      */
-    private fun applyBoundsToSurfaceView(surfaceView: SurfaceView, bounds: VideoBounds) {
+    private fun applyBoundsToView(view: View, bounds: VideoBounds, container: FrameLayout) {
         val webView = webView ?: return
-        
         val webViewLocation = IntArray(2)
         webView.getLocationOnScreen(webViewLocation)
-        
         val containerLocation = IntArray(2)
-        overlayContainer?.getLocationOnScreen(containerLocation)
-        
-        val density = context.resources.displayMetrics.density
-        
-        val left = (bounds.x * density).toInt() + webViewLocation[0] - containerLocation[0]
-        val top = (bounds.y * density).toInt() + webViewLocation[1] - containerLocation[1]
-        val width = (bounds.width * density).toInt()
-        val height = (bounds.height * density).toInt()
-        
-        val layoutParams = surfaceView.layoutParams as? FrameLayout.LayoutParams ?: return
-        layoutParams.width = width
-        layoutParams.height = height
-        layoutParams.leftMargin = left
-        layoutParams.topMargin = top
-        surfaceView.layoutParams = layoutParams
-        
-        Timber.d("Updated bounds: left=$left, top=$top, width=$width, height=$height")
+        container.getLocationOnScreen(containerLocation)
+        val scale = if (bounds.viewportWidth > 0 && webView.width > 0) {
+            webView.width / bounds.viewportWidth
+        } else {
+            context.resources.displayMetrics.density
+        }
+        val params = view.layoutParams as? FrameLayout.LayoutParams ?: return
+        params.width = (bounds.width * scale).roundToInt()
+        params.height = (bounds.height * scale).roundToInt()
+        params.leftMargin = (bounds.x * scale).roundToInt() + webViewLocation[0] - containerLocation[0]
+        params.topMargin = (bounds.y * scale).roundToInt() + webViewLocation[1] - containerLocation[1]
+        view.layoutParams = params
     }
 
-    /**
-     * Apply bounds to a SubtitleView, using the same coordinate conversion as SurfaceView
-     * but relative to the subtitle container (which is above the WebView).
-     */
+    private fun createVideoContainer(surfaceView: SurfaceView) = FrameLayout(context).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
+        clipChildren = true
+        clipToPadding = true
+        visibility = View.GONE
+        addView(surfaceView)
+    }
+
+    private fun applyBoundsToSurfaceView(surfaceView: SurfaceView, bounds: VideoBounds) {
+        val videoContainer = surfaceView.parent as? FrameLayout ?: return
+        val container = overlayContainer ?: return
+        applyBoundsToView(videoContainer, bounds, container)
+    }
+
     private fun applyBoundsToSubtitleView(subtitleView: SubtitleView, bounds: VideoBounds) {
-        val webView = webView ?: return
-        val subContainer = subtitleContainer ?: overlayContainer ?: return
-
-        val webViewLocation = IntArray(2)
-        webView.getLocationOnScreen(webViewLocation)
-
-        val containerLocation = IntArray(2)
-        subContainer.getLocationOnScreen(containerLocation)
-
-        val density = context.resources.displayMetrics.density
-
-        val left = (bounds.x * density).toInt() + webViewLocation[0] - containerLocation[0]
-        val top = (bounds.y * density).toInt() + webViewLocation[1] - containerLocation[1]
-        val width = (bounds.width * density).toInt()
-        val height = (bounds.height * density).toInt()
-
-        val layoutParams = subtitleView.layoutParams as? FrameLayout.LayoutParams ?: return
-        layoutParams.width = width
-        layoutParams.height = height
-        layoutParams.leftMargin = left
-        layoutParams.topMargin = top
-        subtitleView.layoutParams = layoutParams
+        val container = subtitleContainer ?: overlayContainer ?: return
+        applyBoundsToView(subtitleView, bounds, container)
     }
 
     /**
@@ -434,6 +434,7 @@ class VideoOverlayManager(
         Timber.d("Setting visibility for $videoId: $visible")
         videoVisibility[videoId] = visible
         val viewVisibility = if (visible) View.VISIBLE else View.GONE
+        videoContainers[videoId]?.visibility = viewVisibility
         surfaceViews[videoId]?.visibility = viewVisibility
         subtitleViews[videoId]?.visibility = viewVisibility
     }
@@ -443,28 +444,6 @@ class VideoOverlayManager(
      */
     private fun setVideoFullscreen(videoId: String, fullscreen: Boolean) {
         if (fullscreen) fullscreenVideos.add(videoId) else fullscreenVideos.remove(videoId)
-        Timber.d("Setting fullscreen for $videoId: $fullscreen")
-
-        val surfaceView = surfaceViews[videoId] ?: return
-        val subtitleView = subtitleViews[videoId]
-
-        if (fullscreen) {
-            val fullscreenParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ).apply {
-                leftMargin = 0
-                topMargin = 0
-            }
-            surfaceView.layoutParams = fullscreenParams
-            subtitleView?.layoutParams = FrameLayout.LayoutParams(fullscreenParams)
-        } else {
-            videoBounds[videoId]?.let { bounds ->
-                applyBoundsToSurfaceView(surfaceView, bounds)
-                subtitleView?.let { applyBoundsToSubtitleView(it, bounds) }
-            }
-        }
-
         reapplyAspectRatio(videoId)
     }
 
@@ -510,67 +489,65 @@ class VideoOverlayManager(
         callJavaScript("onFirstFrameRendered", videoId)
     }
 
+    private fun resolveContainerDimension(dimension: Int, parentDimension: Int) =
+        if (dimension == FrameLayout.LayoutParams.MATCH_PARENT) parentDimension else dimension
+
     /**
-     * Apply aspect ratio correction to SurfaceView by adjusting its LayoutParams
-     * to achieve FIT_CENTER behavior. SurfaceView doesn't support matrix transforms,
-     * so we calculate the correct size and offset directly.
+     * Match the web player's fit mode. Cover keeps the aspect ratio and crops
+     * inside the video container; fill stretches only when requested by the web UI.
      */
-    private fun applyAspectRatio(surfaceView: SurfaceView, size: VideoNativeSize) {
+    private fun applyAspectRatio(surfaceView: SurfaceView, size: VideoNativeSize, objectFit: String) {
         val parent = surfaceView.parent as? FrameLayout ?: return
-        val containerWidth = (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.width
-            ?.takeIf { it > 0 } ?: parent.width
-        val containerHeight = (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.height
-            ?.takeIf { it > 0 } ?: parent.height
+        val parentParams = parent.layoutParams as? FrameLayout.LayoutParams ?: return
+        val container = overlayContainer ?: return
+        val containerWidth = resolveContainerDimension(parentParams.width, container.width)
+        val containerHeight = resolveContainerDimension(parentParams.height, container.height)
+        if (containerWidth <= 0 || containerHeight <= 0) return
+        if (size.width <= 0 || size.height <= 0) return
 
-        if (containerWidth <= 0 || containerHeight <= 0 || size.width <= 0 || size.height <= 0) return
-
-        val videoAspect = (size.width * size.pixelWidthHeightRatio) / size.height
-        val containerAspect = containerWidth.toFloat() / containerHeight.toFloat()
-
-        val params = surfaceView.layoutParams as? FrameLayout.LayoutParams ?: return
-        val currentLeft = params.leftMargin
-        val currentTop = params.topMargin
-
-        if (videoAspect > containerAspect) {
-            val fitHeight = (containerWidth / videoAspect).toInt()
-            val yOffset = (containerHeight - fitHeight) / 2
-            params.width = containerWidth
-            params.height = fitHeight
-            params.leftMargin = currentLeft
-            params.topMargin = currentTop + yOffset
-        } else {
-            val fitWidth = (containerHeight * videoAspect).toInt()
-            val xOffset = (containerWidth - fitWidth) / 2
-            params.width = fitWidth
-            params.height = containerHeight
-            params.leftMargin = currentLeft + xOffset
-            params.topMargin = currentTop
+        val videoWidth = size.width * size.pixelWidthHeightRatio
+        if (videoWidth <= 0 || !videoWidth.isFinite()) return
+        val widthScale = containerWidth / videoWidth
+        val heightScale = containerHeight.toFloat() / size.height
+        val scale = when (objectFit) {
+            "cover" -> max(widthScale, heightScale)
+            else -> min(widthScale, heightScale)
         }
-
-        surfaceView.layoutParams = params
-        Timber.d("Applied aspect ratio: video=${size.width}x${size.height} container=${containerWidth}x${containerHeight}")
+        val params = if (objectFit == "fill") {
+            FrameLayout.LayoutParams(containerWidth, containerHeight)
+        } else {
+            FrameLayout.LayoutParams((videoWidth * scale).roundToInt(), (size.height * scale).roundToInt())
+        }
+        surfaceView.layoutParams = params.apply {
+            leftMargin = (containerWidth - width) / 2
+            topMargin = (containerHeight - height) / 2
+        }
     }
 
     /**
-     * Reapply the aspect ratio for a video, if native size is known.
-     * Should be called after any bounds/layout change.
+     * Refit against the original video box after bounds, fit mode or window size changes.
      */
     private fun reapplyAspectRatio(videoId: String) {
         val surfaceView = surfaceViews[videoId] ?: return
-        val size = videoNativeSizes[videoId] ?: return
         surfaceView.post {
             if (released || surfaceViews[videoId] !== surfaceView) return@post
-            // Always fit against the original video box, never the already fitted surface.
+            val videoContainer = videoContainers[videoId] ?: return@post
+            val subtitleView = subtitleViews[videoId]
+            val bounds = videoBounds[videoId]
             if (videoId in fullscreenVideos) {
-                surfaceView.layoutParams = FrameLayout.LayoutParams(
+                val params = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 )
+                videoContainer.layoutParams = params
+                subtitleView?.layoutParams = FrameLayout.LayoutParams(params)
             } else {
-                val bounds = videoBounds[videoId] ?: return@post
+                bounds ?: return@post
                 applyBoundsToSurfaceView(surfaceView, bounds)
+                subtitleView?.let { applyBoundsToSubtitleView(it, bounds) }
             }
-            applyAspectRatio(surfaceView, size)
+            val size = videoNativeSizes[videoId] ?: return@post
+            applyAspectRatio(surfaceView, size, bounds?.objectFit ?: "contain")
         }
     }
 
@@ -943,6 +920,8 @@ class VideoOverlayManager(
         resolutionJobs.values.forEach { it.cancel() }
         resolutionJobs.clear()
         fullscreenVideos.clear()
+        overlayContainer?.removeOnLayoutChangeListener(layoutChangeListener)
+        webView?.removeOnLayoutChangeListener(layoutChangeListener)
         Timber.d("Releasing VideoOverlayManager")
         
         progressUpdateJob?.cancel()
@@ -954,9 +933,10 @@ class VideoOverlayManager(
         
         // Remove all overlay views
         mainHandler.post {
-            surfaceViews.values.forEach { surfaceView ->
-                (surfaceView.parent as? ViewGroup)?.removeView(surfaceView)
+            videoContainers.values.forEach { videoContainer ->
+                (videoContainer.parent as? ViewGroup)?.removeView(videoContainer)
             }
+            videoContainers.clear()
             surfaceViews.clear()
             subtitleViews.values.forEach { subtitleView ->
                 (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)

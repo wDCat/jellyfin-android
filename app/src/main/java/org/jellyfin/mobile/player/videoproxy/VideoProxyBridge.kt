@@ -126,6 +126,8 @@ class VideoProxyBridge(
                 y = json.getDouble("y").toFloat(),
                 width = json.getDouble("width").toFloat(),
                 height = json.getDouble("height").toFloat(),
+                viewportWidth = json.optDouble("viewportWidth", 0.0).toFloat(),
+                objectFit = json.optString("objectFit", "contain"),
             )
             videoProxyEventChannel.trySend(VideoProxyEvent.UpdateBounds(videoId, bounds))
         } catch (e: Exception) {
@@ -252,6 +254,8 @@ data class VideoBounds(
     val y: Float,
     val width: Float,
     val height: Float,
+    val viewportWidth: Float = 0f,
+    val objectFit: String = "contain",
 )
 
 /**

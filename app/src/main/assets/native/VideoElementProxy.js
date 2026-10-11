@@ -1088,6 +1088,8 @@
 
             // Listen for scroll events
             window.addEventListener('scroll', this._boundUpdatePosition, { passive: true });
+            window.addEventListener('resize', this._boundUpdatePosition);
+            document.addEventListener('fullscreenchange', this._boundUpdatePosition);
             document.addEventListener('scroll', this._boundUpdatePosition, { passive: true, capture: true });
 
             // Initial position update
@@ -1107,6 +1109,8 @@
                 this._intersectionObserver = null;
             }
             window.removeEventListener('scroll', this._boundUpdatePosition);
+            window.removeEventListener('resize', this._boundUpdatePosition);
+            document.removeEventListener('fullscreenchange', this._boundUpdatePosition);
             document.removeEventListener('scroll', this._boundUpdatePosition, { capture: true });
         }
 
@@ -1119,14 +1123,18 @@
                 x: rect.left,
                 y: rect.top,
                 width: rect.width,
-                height: rect.height
+                height: rect.height,
+                viewportWidth: window.innerWidth,
+                objectFit: getComputedStyle(this.originalVideo).objectFit || 'contain'
             };
 
             // Only update if bounds changed
             if (this._bounds.x !== newBounds.x ||
                 this._bounds.y !== newBounds.y ||
                 this._bounds.width !== newBounds.width ||
-                this._bounds.height !== newBounds.height) {
+                this._bounds.height !== newBounds.height ||
+                this._bounds.viewportWidth !== newBounds.viewportWidth ||
+                this._bounds.objectFit !== newBounds.objectFit) {
                 this._bounds = newBounds;
                 bridge.updateBounds(this.videoId, JSON.stringify(newBounds));
             }
@@ -1521,6 +1529,8 @@
         onStateChange(videoId, state) {
             const proxyState = proxiedVideos.get(videoId);
             if (!proxyState || !proxyState.isProxied) return;
+            // CSS fit modes can change without resizing the video element.
+            proxyState._boundUpdatePosition();
             const previousTime = proxyState._currentTime;
             let seekCompleted = false;
             if (state.seekable !== undefined) proxyState._seekable = state.seekable;
