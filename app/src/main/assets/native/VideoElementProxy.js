@@ -16,6 +16,48 @@
 
     console.log('[VideoProxy] Initializing video element proxy');
 
+    // NijiLucid imports decoded HTML video frames into WebGPU. SurfaceView
+    // playback cannot supply those frames, so negotiate a browser stream while
+    // enhancement is enabled, including when the preference was saved earlier.
+    function enhancementEnabled() {
+        try {
+            return JSON.parse(localStorage.getItem('jellyfin.nijilucid.v1') || 'null')?.enabled === true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    let webPlaybackRequired = enhancementEnabled();
+    let reloadPlayback = null;
+    let modeChanges = Promise.resolve();
+    window.VideoProxy = Object.freeze({
+        setPlaybackReloader(reload) {
+            reloadPlayback = reload;
+        }
+    });
+
+    function updatePlaybackMode() {
+        // Read the latest preference when each queued change starts. Changing the
+        // policy during an in-flight PlaybackInfo request would mix the browser
+        // profile with the native source handler (or the reverse).
+        modeChanges = modeChanges.then(async () => {
+            const required = enhancementEnabled();
+            if (required === webPlaybackRequired) return;
+            const previous = webPlaybackRequired;
+            webPlaybackRequired = required;
+            try {
+                await reloadPlayback?.();
+            } catch (_) {
+                webPlaybackRequired = previous;
+                console.warn('[VideoProxy] Could not switch video decoding mode');
+            }
+        });
+    }
+    window.addEventListener('nijilucid-settings', updatePlaybackMode);
+    window.addEventListener('storage', event => {
+        if (event.key === 'jellyfin.nijilucid.v1' || event.key === null) updatePlaybackMode();
+    });
+
     // ─── Override canPlayType to report ExoPlayer audio capabilities ───
     //
     // The Jellyfin web client's HtmlVideoPlayer.getSupportedAudioStreams()
@@ -31,7 +73,7 @@
     const originalCanPlayType = HTMLMediaElement.prototype.canPlayType;
     HTMLMediaElement.prototype.canPlayType = function(type) {
         const original = originalCanPlayType.call(this, type);
-        if (original) return original;
+        if (original || webPlaybackRequired) return original;
 
         // ExoPlayer-supported audio codecs that Chrome typically rejects
         const lowerType = type.toLowerCase();
@@ -884,6 +926,7 @@
             
             // Whether the native ExoPlayer has been created for this video
             this._nativeCreated = false;
+            this._pendingPlayPromises = [];
             
             // Playback state
             this._src = '';
@@ -949,7 +992,16 @@
             this._nativeDescriptors[prop]?.set?.call(this.originalVideo, value);
         }
 
+        settlePlayPromises(error = null) {
+            const pending = this._pendingPlayPromises.splice(0);
+            for (const promise of pending) {
+                if (error) promise.reject(error);
+                else promise.resolve();
+            }
+        }
+
         releaseNativePlayer() {
+            this.settlePlayPromises(new DOMException('Playback source changed', 'AbortError'));
             this.stopObserving();
             this._textTrackList._clearCueOverlay();
             this.restoreTransparency();
@@ -984,8 +1036,8 @@
             this._ended = this._seeking = this._buffering = this._playing = false;
             this._seekCompletedAt = 0;
             this._error = null;
-            const resolveBlob = value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
-            const direct = value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
+            const resolveBlob = !webPlaybackRequired && value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
+            const direct = !webPlaybackRequired && value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
             if (!resolveBlob && !direct) {
                 this.nativeSet('src', value);
                 this.nativeSet('volume', this._volume);
@@ -1335,19 +1387,27 @@
 
         video.play = function() {
             if (state.isProxied) {
+                // Match HTMLMediaElement.play(): callers may restore pause or
+                // tracks only after playback has actually started. Returning an
+                // already-resolved promise skips the web player's startup seek.
+                const started = state._playing && !state._paused;
+                const promise = started ? Promise.resolve() : new Promise((resolve, reject) => {
+                    state._pendingPlayPromises.push({ resolve, reject });
+                });
                 if (state._paused) {
                     state._paused = false;
                     state.dispatchEvent('play');
                 }
                 state._ended = false;
                 bridge.play(state.videoId);
-                return Promise.resolve();
+                return promise;
             }
             return originalPlay();
         };
 
         video.pause = function() {
             if (state.isProxied) {
+                state.settlePlayPromises(new DOMException('Playback was paused', 'AbortError'));
                 if (!state._paused) {
                     state._paused = true;
                     state._playing = false;
@@ -1584,7 +1644,10 @@
                 proxyState._textTrackList._checkCueChanges();
             }
             const playing = !proxyState._paused && !proxyState._ended && !proxyState._buffering && proxyState._readyState >= 3;
-            if (playing && !proxyState._playing) proxyState.dispatchEvent('playing');
+            if (playing && !proxyState._playing) {
+                proxyState.dispatchEvent('playing');
+                proxyState.settlePlayPromises();
+            }
             proxyState._playing = playing;
         },
 
@@ -1604,6 +1667,7 @@
             if (!proxyState) return;
 
             proxyState._error = Object.freeze({ code: errorCode, message: errorMessage });
+            proxyState.settlePlayPromises(new DOMException(errorMessage, 'NotSupportedError'));
             proxyState._playing = false;
             proxyState._seeking = false;
             proxyState.dispatchEvent('error');

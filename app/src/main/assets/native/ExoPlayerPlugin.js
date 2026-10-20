@@ -4,6 +4,9 @@ export class ExoPlayerPlugin {
 
         this.events = events;
         this.playbackManager = playbackManager;
+        // Renegotiate the active HTML player's stream when WebGPU enhancement
+        // changes decoder ownership. This also preserves the current playlist.
+        window.VideoProxy?.setPlaybackReloader(() => playbackManager.reloadCurrentStream());
         this.appSettings = appSettings;
         this.loading = loading;
 
