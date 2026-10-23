@@ -19,18 +19,35 @@
     // NijiLucid imports decoded HTML video frames into WebGPU. SurfaceView
     // playback cannot supply those frames, so negotiate a browser stream while
     // enhancement is enabled, including when the preference was saved earlier.
+    const enhancementSettingsKey = 'jellyfin.nijilucid.v1';
+    let playbackItem = null;
+
     function enhancementEnabled() {
+        const seriesId = playbackItem?.SeriesId || (playbackItem?.Type === 'Series' ? playbackItem.Id : null);
+        const serverId = playbackItem?.ServerId;
+        // Match the web client's per-series settings. A series without a saved
+        // profile starts with enhancement off, even if the global setting is on.
+        const key = seriesId && serverId
+            ? `${enhancementSettingsKey}.series.${encodeURIComponent(serverId)}.${encodeURIComponent(seriesId)}`
+            : enhancementSettingsKey;
         try {
-            return JSON.parse(localStorage.getItem('jellyfin.nijilucid.v1') || 'null')?.enabled === true;
+            const settings = JSON.parse(localStorage.getItem(key) || 'null');
+            return settings && !Array.isArray(settings) && settings.enabled === true;
         } catch (_) {
             return false;
         }
     }
 
-    let webPlaybackRequired = enhancementEnabled();
+    let webPlaybackRequired = !!enhancementEnabled();
     let reloadPlayback = null;
     let modeChanges = Promise.resolve();
     window.VideoProxy = Object.freeze({
+        preparePlayback(item) {
+            // Called before the browser builds its codec profile or requests a
+            // stream, so both negotiation and source assignment use one policy.
+            playbackItem = item;
+            webPlaybackRequired = !!enhancementEnabled();
+        },
         setPlaybackReloader(reload) {
             reloadPlayback = reload;
         }
@@ -41,7 +58,7 @@
         // policy during an in-flight PlaybackInfo request would mix the browser
         // profile with the native source handler (or the reverse).
         modeChanges = modeChanges.then(async () => {
-            const required = enhancementEnabled();
+            const required = !!enhancementEnabled();
             if (required === webPlaybackRequired) return;
             const previous = webPlaybackRequired;
             webPlaybackRequired = required;
@@ -55,7 +72,7 @@
     }
     window.addEventListener('nijilucid-settings', updatePlaybackMode);
     window.addEventListener('storage', event => {
-        if (event.key === 'jellyfin.nijilucid.v1' || event.key === null) updatePlaybackMode();
+        if (event.key === enhancementSettingsKey || event.key?.startsWith(enhancementSettingsKey + '.series.') || event.key === null) updatePlaybackMode();
     });
 
     // ─── Override canPlayType to report ExoPlayer audio capabilities ───
