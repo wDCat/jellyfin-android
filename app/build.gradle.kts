@@ -176,6 +176,7 @@ dependencies {
         exclude("com.google.android.gms", "play-services-cronet")
     }
     implementation(libs.androidx.media3.datasource.cronet)
+    implementation(libs.nextlib.media3ext)
     proprietaryImplementation(libs.androidx.media3.cast)
     proprietaryImplementation(libs.bundles.playservices)
 

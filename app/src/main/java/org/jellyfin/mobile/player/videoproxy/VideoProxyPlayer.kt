@@ -23,6 +23,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.ui.SubtitleView
+import org.jellyfin.mobile.player.VideoRenderersFactory
 import org.jellyfin.mobile.utils.applyDefaultAudioAttributes
 import timber.log.Timber
 import java.util.Locale
@@ -170,7 +171,7 @@ class VideoProxyPlayer(
 
         Timber.d("Initializing VideoProxyPlayer for $videoId")
 
-        val renderersFactory = DefaultRenderersFactory(context).apply {
+        val renderersFactory = VideoRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
