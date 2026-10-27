@@ -2,8 +2,12 @@ package org.jellyfin.mobile.player.deviceprofile
 
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import androidx.media3.common.MimeTypes
+import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegLibrary
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder.Companion.AVAILABLE_AUDIO_CODECS
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder.Companion.AVAILABLE_VIDEO_CODECS
@@ -233,6 +237,21 @@ class DeviceProfileBuilder(
 
     fun getWebCodecCapabilitiesJson(): String = buildJsonObject {
         put("h264MaxLevel", CodecHelpers.getVideoLevel("h264", maxAvcRawLevel)?.toString() ?: DEFAULT_H264_MAX_LEVEL)
+        put(
+            "h264High10Supported",
+            videoCodecsProfiles["h264"]?.contains("high 10") == true || FfmpegLibrary.supportsFormat(MimeTypes.VIDEO_H264),
+        )
+        putJsonArray("h264DirectPlayProfiles") {
+            for (i in SUPPORTED_CONTAINER_FORMATS.indices) {
+                if ("h264" !in AVAILABLE_VIDEO_CODECS[i]) continue
+                addJsonObject {
+                    put("Type", "Video")
+                    put("Container", SUPPORTED_CONTAINER_FORMATS[i])
+                    put("VideoCodec", "h264")
+                    put("AudioCodec", supportedAudioCodecs[i].joinToString(","))
+                }
+            }
+        }
     }.toString()
 
     companion object {

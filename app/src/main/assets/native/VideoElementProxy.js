@@ -16,6 +16,15 @@
 
     console.log('[VideoProxy] Initializing video element proxy');
 
+    // AVC support alone does not imply High 10 support. Keep server-transcoded
+    // playback in the browser when Android cannot decode the original stream.
+    const codecCapabilities = JSON.parse(window.NativeInterface.getCodecCapabilities());
+
+    function isHigh10Stream(stream) {
+        return stream?.Codec?.toLowerCase() === 'h264' &&
+            (stream.Profile?.toLowerCase() === 'high 10' || stream.BitDepth === 10);
+    }
+
     // NijiLucid imports decoded HTML video frames into WebGPU. SurfaceView
     // playback cannot supply those frames, so negotiate a browser stream while
     // enhancement is enabled, including when the preference was saved earlier.
@@ -165,6 +174,10 @@
             }
         }
 
+        const videoStream = mediaSource?.MediaStreams?.find(stream => stream.Type === 'Video');
+        const isHigh10 = isHigh10Stream(videoStream);
+        const nativeVideoSupported = !isHigh10 || codecCapabilities.h264High10Supported === true;
+
         const defaultSubtitleStreamIndex = mediaSource
             ? (mediaSource.DefaultSubtitleStreamIndex ?? -1) : -1;
 
@@ -172,6 +185,7 @@
             itemId: itemId,
             mediaSourceId: mediaSource ? mediaSource.Id : '',
             playSessionId: data.PlaySessionId || '',
+            nativeVideoSupported: nativeVideoSupported,
             audioStreamIndices: audioStreamIndices,
             subtitleStreamIndices: subtitleStreamIndices,
             subtitleStreams: subtitleStreams,
@@ -234,6 +248,33 @@
         }
     }
 
+    function preparePlaybackRequest(url, body) {
+        if (webPlaybackRequired || !bridge.isEnabled() || !codecCapabilities.h264High10Supported ||
+            typeof body !== 'string' || !/\/Items\/[^/]+\/PlaybackInfo/i.test(url)) return body;
+        // The browser profile rejects High 10 and MKV. Advertise the native
+        // decoder before negotiation so the server returns the original file.
+        const itemId = String(url).match(/\/Items\/([^/]+)\/PlaybackInfo/i)?.[1];
+        if (normalizeId(itemId) !== normalizeId(playbackItem?.Id)) return body;
+        const streams = playbackItem?.MediaStreams || playbackItem?.MediaSources?.flatMap(source => source.MediaStreams || []) || [];
+        if (!streams.some(stream => stream.Type === 'Video' && isHigh10Stream(stream))) return body;
+        try {
+            const request = JSON.parse(body);
+            const profile = request.DeviceProfile;
+            if (!profile) return body;
+            profile.DirectPlayProfiles = [...(profile.DirectPlayProfiles || []), ...(codecCapabilities.h264DirectPlayProfiles || [])];
+            for (const codecProfile of profile.CodecProfiles || []) {
+                if (codecProfile.Type !== 'Video' || !codecProfile.Codec?.split(',').includes('h264')) continue;
+                for (const condition of codecProfile.Conditions || []) {
+                    if (condition.Property === 'VideoProfile' && condition.Condition === 'EqualsAny' &&
+                        !condition.Value.toLowerCase().split('|').includes('high 10')) condition.Value += '|high 10';
+                }
+            }
+            return JSON.stringify(request);
+        } catch (_) {
+            return body;
+        }
+    }
+
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         // Detect subtitle API fetches BEFORE awaiting response, so
@@ -253,6 +294,14 @@
             console.warn('[VideoProxy] Error in pre-fetch subtitle detection:', e);
         }
 
+        const requestUrl = typeof args[0] === 'string' ? args[0] : args[0]?.url;
+        if (args[0] instanceof Request && !args[1]?.body && /\/PlaybackInfo/i.test(requestUrl)) {
+            const body = await args[0].clone().text();
+            const prepared = preparePlaybackRequest(requestUrl, body);
+            if (prepared !== body) args[0] = new Request(args[0], { body: prepared });
+        } else if (args[1]?.body) {
+            args[1] = { ...args[1], body: preparePlaybackRequest(requestUrl, args[1].body) };
+        }
         const response = await originalFetch.apply(this, args);
 
         try {
@@ -289,6 +338,7 @@
 
     XMLHttpRequest.prototype.send = function(body) {
         const xhrUrl = this._videoProxyUrl;
+        body = preparePlaybackRequest(xhrUrl, body);
         if (xhrUrl && typeof xhrUrl === 'string') {
             if (xhrUrl.includes('/PlaybackInfo')) {
                 this.addEventListener('load', function() {
@@ -1053,8 +1103,9 @@
             this._ended = this._seeking = this._buffering = this._playing = false;
             this._seekCompletedAt = 0;
             this._error = null;
-            const resolveBlob = !webPlaybackRequired && value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
-            const direct = !webPlaybackRequired && value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
+            const nativePlaybackAllowed = !webPlaybackRequired && this._playbackContext?.nativeVideoSupported !== false;
+            const resolveBlob = nativePlaybackAllowed && value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
+            const direct = nativePlaybackAllowed && value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
             if (!resolveBlob && !direct) {
                 this.nativeSet('src', value);
                 this.nativeSet('volume', this._volume);
