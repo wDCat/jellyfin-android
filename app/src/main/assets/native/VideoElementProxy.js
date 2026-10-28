@@ -1896,6 +1896,12 @@
 
         const style = document.createElement('style');
         style.textContent = `
+            /* Themes may make each stats section scroll independently. Use one outer scroller. */
+            .videoProxyPlayerStats .playerStats-content > .playerStats-stats {
+                max-height: none;
+                overflow: visible;
+                flex-shrink: 0;
+            }
             .videoProxyPlayerStats .playerStats-stat-value {
                 min-width: 0;
                 overflow-wrap: anywhere;
