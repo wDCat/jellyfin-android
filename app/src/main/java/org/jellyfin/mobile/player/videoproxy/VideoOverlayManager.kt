@@ -11,6 +11,9 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.CaptionStyleCompat
@@ -94,11 +97,9 @@ class VideoOverlayManager(
     private var progressUpdateJob: Job? = null
     private val progressUpdateIntervalMs = 250L
 
-    // Debug info
-    private var debugInfoView: TextView? = null
-    private var debugContainerView: View? = null
-    private var debugInfoVisible = false
-    private var debugUpdateCounter = 0
+    // Native statistics are sent only while Jellyfin's playback info panel is open.
+    private var playbackInfoVisible = false
+    private var statsUpdateCounter = 0
 
     // Bitrate indicator (top-right corner, shown during buffering)
     private var bitrateIndicatorView: TextView? = null
@@ -157,7 +158,7 @@ class VideoOverlayManager(
             is VideoProxyEvent.SetSubtitleTrack -> setSubtitleTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.DisableSubtitleTrack -> disableSubtitleTrack(event.videoId)
             is VideoProxyEvent.ResolveAndSetSource -> resolveAndSetVideoSource(event.videoId, event.itemId, event.mediaSourceId)
-            is VideoProxyEvent.ToggleDebugInfo -> toggleDebugInfo()
+            is VideoProxyEvent.SetPlaybackInfoVisible -> setPlaybackInfoVisible(event.visible)
         }
     }
 
@@ -266,10 +267,7 @@ class VideoOverlayManager(
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
         }
 
-        // Auto-hide debug info when all players are destroyed (playback ended)
-        if (players.isEmpty()) {
-            hideDebugInfo()
-        }
+        if (playbackInfoVisible) updatePlaybackInfo()
     }
 
     /**
@@ -729,7 +727,7 @@ class VideoOverlayManager(
 
     /**
      * Start periodic progress updates.
-     * Also handles debug info updates when visible (every ~500ms via counter).
+     * Also handles playback info updates when visible (every ~500ms via counter).
      */
     private fun startProgressUpdates() {
         progressUpdateJob?.cancel()
@@ -738,15 +736,15 @@ class VideoOverlayManager(
                 players.values.forEach { player ->
                     player.updateProgress()
                 }
-                // Update debug info and bitrate indicator every ~500ms (every 2nd progress tick at 250ms interval)
-                debugUpdateCounter++
-                if (debugUpdateCounter >= 2) {
-                    debugUpdateCounter = 0
-                    if (debugInfoVisible) {
+                // Update playback info and bitrate indicator every ~500ms (every 2nd progress tick at 250ms interval)
+                statsUpdateCounter++
+                if (statsUpdateCounter >= 2) {
+                    statsUpdateCounter = 0
+                    if (playbackInfoVisible) {
                         try {
-                            updateDebugInfo()
+                            updatePlaybackInfo()
                         } catch (e: Exception) {
-                            Timber.e(e, "Error updating debug info")
+                            Timber.e(e, "Error updating playback info")
                         }
                     }
                     // Refresh bitrate indicator while buffering to show live bandwidth estimate
@@ -763,153 +761,24 @@ class VideoOverlayManager(
         }
     }
 
-    /**
-     * Set the debug info TextView and its outer container (for visibility control).
-     */
-    fun setDebugInfoView(textView: TextView, container: View) {
-        debugInfoView = textView
-        debugContainerView = container
+    private fun setPlaybackInfoVisible(visible: Boolean) {
+        playbackInfoVisible = visible
+        if (visible) updatePlaybackInfo()
     }
 
-    /**
-     * Toggle the debug info overlay visibility.
-     * Debug updates are driven by the existing progress update loop,
-     * so no separate coroutine is needed.
-     * @return true if the debug info is now visible, false otherwise.
-     */
-    fun toggleDebugInfo(): Boolean {
-        debugInfoVisible = !debugInfoVisible
-        debugUpdateCounter = 0
-        if (debugInfoVisible) {
-            debugContainerView?.visibility = View.VISIBLE
-            // Force an immediate update so user sees info right away
-            try {
-                updateDebugInfo()
-            } catch (e: Exception) {
-                Timber.e(e, "Error during initial debug info update")
-            }
-        } else {
-            debugContainerView?.visibility = View.GONE
+    private fun updatePlaybackInfo() {
+        val view = webView ?: return
+        val insets = ViewCompat.getRootWindowInsets(view)?.getInsets(WindowInsetsCompat.Type.displayCutout()) ?: Insets.NONE
+        val payload = JSONObject().apply {
+            put("players", JSONArray(players.values.map { it.getDebugInfo().toPlaybackInfoJson() }))
+            put("viewportWidth", view.width)
+            put("safeArea", JSONObject().apply {
+                put("left", insets.left)
+                put("right", insets.right)
+            })
         }
-        Timber.d("Debug info toggled: visible=$debugInfoVisible")
-        return debugInfoVisible
+        callJavaScript("onPlaybackInfo", payload)
     }
-
-    /**
-     * Hide the debug info overlay (called from close button).
-     */
-    fun hideDebugInfo() {
-        if (debugInfoVisible) {
-            debugInfoVisible = false
-            debugContainerView?.visibility = View.GONE
-            Timber.d("Debug info hidden")
-        }
-    }
-
-    /**
-     * Update the debug info text view with current ExoPlayer stats.
-     * Called from the progress update loop on the main thread.
-     */
-    private fun updateDebugInfo() {
-        val view = debugInfoView ?: return
-
-        val playerEntries = players.entries.toList()
-        if (playerEntries.isEmpty()) {
-            view.text = buildString {
-                appendLine("ExoPlayer Video Proxy Debug")
-                appendLine("═══════════════════════════")
-                append("Players: 0 (no video element created)")
-            }
-            return
-        }
-
-        // Find the best player to show details for:
-        // prefer one that is actively proxying (has source), then any
-        val allInfos = playerEntries.map { (id, player) -> id to player.getDebugInfo() }
-        val activeInfo = allInfos.firstOrNull { it.second.isProxying }
-            ?: allInfos.first()
-
-        val info = activeInfo.second
-        val posStr = formatTime(info.currentPosition)
-        val durStr = formatTime(info.duration)
-        val bufStr = formatTime(info.bufferPosition)
-
-        // Truncate source URL for display
-        val sourceDisplay = when {
-            info.sourceUrl.isEmpty() -> "(none - not proxied)"
-            info.sourceUrl.length > 60 -> "...${info.sourceUrl.takeLast(57)}"
-            else -> info.sourceUrl
-        }
-
-        view.text = buildString {
-            appendLine("ExoPlayer Video Proxy Debug")
-            appendLine("═══════════════════════════")
-            appendLine("Players: ${playerEntries.size}")
-            // Show brief status of all players
-            allInfos.forEach { (id, pi) ->
-                val marker = if (id == activeInfo.first) "▸" else " "
-                appendLine("$marker $id: ${pi.playbackState} exo=${pi.hasExoPlayer} src=${pi.isProxying}")
-            }
-            appendLine("═══════════════════════════")
-            appendLine("Active: ${info.videoId}")
-            appendLine("State: ${info.playbackState}")
-            appendLine("ExoPlayer: ${if (info.hasExoPlayer) "initialized" else "NULL"}")
-            appendLine("Source: $sourceDisplay")
-            appendLine("─── Video ───")
-            appendLine("Decoder: ${info.videoDecoderName}")
-            appendLine("HW Accel: ${if (info.isHardwareDecoding) "Yes" else "No"}")
-            appendLine("Format: ${info.videoFormat}")
-            appendLine("Resolution: ${info.resolution}")
-            appendLine("Frame Rate: ${info.frameRate}")
-            appendLine("Bitrate: ${info.videoBitrate}")
-            appendLine("Surface: ${info.surfaceSize}")
-            appendLine("Frames: ${info.renderedFrames} rendered, ${info.droppedFrames} dropped")
-            appendLine("─── Audio ───")
-            appendLine("Decoder: ${info.audioDecoderName}")
-            appendLine("Format: ${info.audioFormat}")
-            appendLine("Bitrate: ${info.audioBitrate}")
-            appendLine("Volume: ${String.format("%.0f%%", info.volume * 100)}")
-            appendLine("─── Subtitles ───")
-            appendLine("Text track: ${if (info.textTrackEnabled) "enabled" else "disabled"}")
-            if (info.subtitleTracks.isEmpty()) {
-                appendLine("Tracks: (none)")
-            } else {
-                info.subtitleTracks.forEach { sub ->
-                    val sel = if (sub.isSelected) "▸" else " "
-                    val lang = sub.language.ifEmpty { "?" }
-                    val label = sub.label.ifEmpty { "no label" }
-                    appendLine("$sel [$lang] $label (${sub.codec})")
-                }
-            }
-            appendLine("─── Network ───")
-            appendLine("Bandwidth: ${info.networkBandwidth}")
-            appendLine("─── Playback ───")
-            appendLine("Position: $posStr / $durStr")
-            appendLine("Buffered: $bufStr")
-            append("Speed: ${info.playbackSpeed}x")
-        }
-    }
-
-    /**
-     * Format milliseconds to HH:MM:SS or MM:SS.
-     */
-    private fun formatTime(ms: Long): String {
-        if (ms <= 0) return "00:00"
-        val totalSeconds = ms / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format("%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format("%02d:%02d", minutes, seconds)
-        }
-    }
-
-    /**
-     * Check if there are any active players (for showing/hiding debug toggle).
-     */
-    fun hasActivePlayers(): Boolean = players.isNotEmpty()
 
     /**
      * Clean up all resources.
@@ -950,9 +819,7 @@ class VideoOverlayManager(
         overlayContainer = null
         subtitleContainer = null
         webView = null
-        debugInfoView = null
-        debugContainerView = null
-        debugInfoVisible = false
+        playbackInfoVisible = false
         bitrateIndicatorContainer?.visibility = View.GONE
         bitrateIndicatorView = null
         bitrateIndicatorContainer = null

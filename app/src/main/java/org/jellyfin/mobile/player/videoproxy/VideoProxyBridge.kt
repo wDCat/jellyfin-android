@@ -190,13 +190,11 @@ class VideoProxyBridge(
     }
 
     /**
-     * Toggle ExoPlayer debug info overlay.
-     * Called from the injected OSD button in the Jellyfin web player.
+     * Subscribe to native statistics while Jellyfin's playback info panel is visible.
      */
     @JavascriptInterface
-    fun toggleDebugInfo() {
-        Timber.d("Toggle debug info")
-        videoProxyEventChannel.trySend(VideoProxyEvent.ToggleDebugInfo)
+    fun setPlaybackInfoVisible(visible: Boolean) {
+        videoProxyEventChannel.trySend(VideoProxyEvent.SetPlaybackInfoVisible(visible))
     }
 
     /**
@@ -277,5 +275,5 @@ sealed class VideoProxyEvent {
     data class SetSubtitleTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class DisableSubtitleTrack(val videoId: String) : VideoProxyEvent()
     data class ResolveAndSetSource(val videoId: String, val itemId: String, val mediaSourceId: String) : VideoProxyEvent()
-    data object ToggleDebugInfo : VideoProxyEvent()
+    data class SetPlaybackInfoVisible(val visible: Boolean) : VideoProxyEvent()
 }

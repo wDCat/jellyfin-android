@@ -1882,176 +1882,169 @@
         }
     });
 
-    /**
-     * Inject the ExoPlayer debug toggle into Jellyfin's video settings action sheet.
-     * Identify the menu by its playback-data item, independent of the UI language.
-     */
-    (function injectDebugMenuItem() {
-        /**
-         * Create a menu item by cloning an existing item's structure,
-         * so it inherits the same classes, icons layout and CSS.
-         * Falls back to a plain button if no template item is available.
-         * @param {Element} container - The menu container to find a template item from
-         * @returns {Element} The menu item button
-         */
-        function createMenuItem(container) {
-            const template = container.querySelector('button');
-            const language = (document.documentElement.lang || navigator.language || '').toLowerCase();
-            const label = language.startsWith('zh')
-                ? (/^zh-(tw|hk|mo|hant)(-|$)/.test(language) ? 'ExoPlayer 偵錯' : 'ExoPlayer 调试')
-                : 'ExoPlayer Debug';
-            let btn;
+    /** Add native statistics to Jellyfin's existing playback info panel. */
+    (function integratePlaybackInfo() {
+        const language = (document.documentElement.lang || navigator.language || '').toLowerCase();
+        const chinese = language.startsWith('zh');
+        const traditional = /^zh-(tw|hk|mo|hant)(-|$)/.test(language);
+        const label = (en, zh, hant = zh) => chinese ? (traditional ? hant : zh) : en;
+        let panel = null;
+        let section = null;
+        let subscribed = false;
+        let pendingSync = false;
+        let latestInfo = null;
 
-            if (template) {
-                // Clone the existing item to get the exact same structure and classes
-                btn = template.cloneNode(true);
-                btn.className = template.className;
-                // Add our marker class
-                btn.classList.add('btnVideoProxyDebug');
-                // Remove any id to avoid duplicates
-                btn.removeAttribute('id');
-                btn.removeAttribute('data-id');
-                btn.removeAttribute('autofocus');
-                btn.removeAttribute('onclick');
-                // Do not inherit values such as "Auto" or a selected quality.
-                btn.querySelectorAll('.listItemAside, .actionSheetItemAsideText, .secondary')
-                    .forEach(element => element.remove());
-                // Replace all text content while preserving icon structure
-                const textEl = btn.querySelector('.actionSheetItemText') ||
-                    btn.querySelector('[class*="ItemText"]') ||
-                    btn.lastElementChild ||
-                    btn;
-                textEl.textContent = label;
-                // Update icon if present
-                const iconEl = btn.querySelector('.material-icons, [class*="Icon"]');
-                if (iconEl && iconEl !== textEl) {
-                    iconEl.className = 'actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons bug_report';
-                    iconEl.textContent = '';
-                    iconEl.style.removeProperty('visibility');
-                }
-                // Clear any checked/selected state
-                btn.classList.remove('selected', 'active', 'checked');
-                btn.removeAttribute('aria-checked');
-                btn.removeAttribute('data-action');
-            } else {
-                // Fallback: create a plain button
-                btn = document.createElement('button');
-                btn.className = 'btnVideoProxyDebug';
-                btn.type = 'button';
-                btn.textContent = label;
+        const style = document.createElement('style');
+        style.textContent = `
+            .videoProxyPlayerStats .playerStats-stat-value {
+                min-width: 0;
+                overflow-wrap: anywhere;
             }
-
-            // Replace all event listeners by cloning without listeners
-            const clean = btn.cloneNode(true);
-            clean.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                try {
-                    bridge.toggleDebugInfo();
-                } catch (err) {
-                    console.error('[VideoProxy] toggleDebugInfo failed:', err);
+            .videoProxyPlaybackInfo .playerStats-stat-label { flex-shrink: 0; }
+            @media (orientation: landscape) {
+                .videoProxyPlayerStats {
+                    max-width: calc(100vw - var(--vp-safe-left, 0px) - var(--vp-safe-right, 0px) - 2em);
                 }
-                closeCurrentMenu();
-            });
+                [dir="ltr"] .videoProxyPlayerStats {
+                    left: max(1.5em, calc(var(--vp-safe-left, 0px) + .5em));
+                    right: auto;
+                }
+                [dir="rtl"] .videoProxyPlayerStats {
+                    right: max(1.5em, calc(var(--vp-safe-right, 0px) + .5em));
+                    left: auto;
+                }
+            }
+        `;
+        document.documentElement.appendChild(style);
 
-            return clean;
+        function clearPanel() {
+            panel?.classList.remove('videoProxyPlayerStats');
+            panel?.style.removeProperty('--vp-safe-left');
+            panel?.style.removeProperty('--vp-safe-right');
+            section?.remove();
+            panel = null;
+            section = null;
+            latestInfo = null;
         }
 
-        /**
-         * Close the currently open actionSheet / dialog.
-         * Jellyfin web uses history-based dialog management: opening a dialog
-         * pushes a history state, so history.back() reliably closes it.
-         */
-        function closeCurrentMenu() {
-            try {
-                history.back();
-            } catch (e) {
-                // Fallback: dispatch Escape key
-                document.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Escape',
-                    bubbles: true,
-                    cancelable: true,
-                }));
+        function syncPanel() {
+            pendingSync = false;
+            const active = Array.from(proxiedVideos.values())
+                .some(state => state.isProxied && state.originalVideo.isConnected);
+            const nextPanel = active && !document.hidden
+                ? Array.from(document.querySelectorAll('.playerStats:not(.hide)'))
+                    .find(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')
+                : null;
+            const content = nextPanel?.querySelector('.playerStats-content');
+            const visible = !!content;
+            if (!visible || nextPanel !== panel) clearPanel();
+            if (visible && (!section || !section.isConnected)) {
+                panel = nextPanel;
+                panel.classList.add('videoProxyPlayerStats');
+                section = document.createElement('div');
+                section.className = 'playerStats-stats videoProxyPlaybackInfo';
+                // Jellyfin replaces .playerStats-stats.innerHTML on each refresh.
+                // Keep our section after that element, inside the same scroll container.
+                content.appendChild(section);
+                if (latestInfo) renderInfo(latestInfo);
+            }
+            if (visible !== subscribed) {
+                subscribed = visible;
+                bridge.setPlaybackInfoVisible(visible);
             }
         }
 
-        /**
-         * Try to inject our menu item into the video settings action sheet.
-         * @param {Element} container - The action sheet element
-         */
-        function tryInjectIntoMenu(container) {
-            // Skip if already injected
-            if (container.querySelector('.btnVideoProxyDebug')) return;
-            // Only expose native debug info while an ExoPlayer proxy is active.
-            if (!Array.from(proxiedVideos.values()).some(state => state.isProxied)) return;
-
-            const itemsContainer = container.querySelector('.actionSheetScroller');
-
-            if (!itemsContainer) return;
-
-            // The video settings menu always includes PlaybackData (id="stats"),
-            // even when quality/transcoding is unavailable. Its submenus and
-            // unrelated dialogs do not contain this item.
-            if (!itemsContainer.querySelector('.actionSheetMenuItem[data-id="stats"]')) return;
-
-            // Add debug menu item at the end of the menu
-            const menuItem = createMenuItem(itemsContainer);
-            itemsContainer.appendChild(menuItem);
-
-            // Expand the scroller's max-height to accommodate the injected item
-            // and shift the entire menu up if it overflows the viewport bottom.
-            requestAnimationFrame(() => {
-                const itemHeight = menuItem.offsetHeight;
-                if (!itemHeight) return;
-
-                // 1. Expand scroller so the new item is scrollable / visible
-                const scroller = container.querySelector('.actionSheetScroller') || itemsContainer;
-                const scrollerStyle = window.getComputedStyle(scroller);
-                const currentMax = parseInt(scrollerStyle.maxHeight, 10);
-                if (currentMax && !isNaN(currentMax)) {
-                    scroller.style.maxHeight = (currentMax + itemHeight) + 'px';
-                }
-
-                // 2. If the menu now overflows below the viewport, shift it up
-                const sheet = container.closest('.actionSheet') || container;
-                const rect = sheet.getBoundingClientRect();
-                const bottomOverflow = rect.bottom - window.innerHeight;
-                if (bottomOverflow > 0) {
-                    const padding = 8; // keep some breathing room from screen edge
-                    const sheetStyle = window.getComputedStyle(sheet);
-                    // Prefer adjusting margin-top (works for both fixed and absolute positioning)
-                    const currentMargin = parseInt(sheetStyle.marginTop, 10) || 0;
-                    sheet.style.marginTop = (currentMargin - bottomOverflow - padding - 20) + 'px';
-                }
-            });
-
-            console.log('[VideoProxy] Debug menu item injected into settings menu');
+        function scheduleSync() {
+            if (pendingSync) return;
+            pendingSync = true;
+            requestAnimationFrame(syncPanel);
         }
 
-        // Observe both new action sheets and items populated after sheet creation.
-        const menuObserver = new MutationObserver((mutations) => {
-            const menus = new Set();
-            for (const mutation of mutations) {
-                const currentMenu = mutation.target.closest?.('.actionSheet');
-                if (currentMenu) menus.add(currentMenu);
+        function formatTime(ms) {
+            const seconds = Math.max(0, Math.floor(ms / 1000));
+            const parts = [Math.floor(seconds / 60) % 60, seconds % 60];
+            if (seconds >= 3600) parts.unshift(Math.floor(seconds / 3600));
+            return parts.map(value => String(value).padStart(2, '0')).join(':');
+        }
 
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                    if (node.matches('.actionSheet')) menus.add(node);
-                    node.querySelectorAll('.actionSheet').forEach(menu => menus.add(menu));
-                }
+        function row(parent, name, value, header = false) {
+            const item = document.createElement('div');
+            item.className = 'playerStats-stat' + (header ? ' playerStats-stat-header' : '');
+            // Some themes hide the first category heading in every stats container.
+            if (header) item.style.display = 'flex';
+            for (const [className, text] of [['label', name], ['value', value]]) {
+                const element = document.createElement('div');
+                element.className = 'playerStats-stat-' + className;
+                element.textContent = String(text ?? '');
+                item.appendChild(element);
             }
-            menus.forEach(menu => {
-                if (menu.isConnected) tryInjectIntoMenu(menu);
-            });
+            parent.appendChild(item);
+        }
+
+        function renderInfo(data) {
+            if (!section || !panel) return;
+            const scale = data.viewportWidth > 0 ? window.innerWidth / data.viewportWidth : 1;
+            panel.style.setProperty('--vp-safe-left', `${(data.safeArea?.left || 0) * scale}px`);
+            panel.style.setProperty('--vp-safe-right', `${(data.safeArea?.right || 0) * scale}px`);
+            const fragment = document.createDocumentFragment();
+            const infos = data.players.filter(info => info.isProxying && proxiedVideos.get(info.videoId)?.isProxied);
+            for (const info of infos) {
+                row(fragment, 'ExoPlayer', infos.length > 1 ? info.videoId : '', true);
+                row(fragment, label('State', '状态', '狀態'), info.playbackState);
+                row(fragment, label('Video decoder', '视频解码器', '視訊解碼器'), info.videoDecoderName);
+                row(fragment, label('Hardware decoding', '硬件解码', '硬體解碼'),
+                    info.isHardwareDecoding ? label('Yes', '是') : label('No', '否'));
+                row(fragment, label('Video format', '视频格式', '視訊格式'), info.videoFormat);
+                row(fragment, label('Resolution', '分辨率', '解析度'), info.resolution);
+                row(fragment, label('Frame rate', '帧率', '幀率'), info.frameRate);
+                row(fragment, label('Video bitrate', '视频码率', '視訊位元率'), info.videoBitrate);
+                row(fragment, label('Surface size', '渲染尺寸'), info.surfaceSize);
+                row(fragment, label('Rendered / dropped frames', '已渲染 / 丢弃帧', '已渲染 / 丟棄幀'),
+                    `${info.renderedFrames} / ${info.droppedFrames}`);
+                row(fragment, label('Audio decoder', '音频解码器', '音訊解碼器'), info.audioDecoderName);
+                row(fragment, label('Audio format', '音频格式', '音訊格式'), info.audioFormat);
+                row(fragment, label('Audio bitrate', '音频码率', '音訊位元率'), info.audioBitrate);
+                row(fragment, label('Volume', '音量'), `${Math.round(info.volume * 100)}%`);
+                row(fragment, label('Native subtitles', '原生字幕'),
+                    info.textTrackEnabled ? label('Enabled', '已启用', '已啟用') : label('Disabled', '未启用', '未啟用'));
+                for (const track of info.subtitleTracks) {
+                    row(fragment, label('Subtitle track', '字幕轨道', '字幕軌道'),
+                        `${track.isSelected ? '▸ ' : ''}[${track.language || '?'}] ${track.label || track.index} (${track.codec})`);
+                }
+                row(fragment, label('Network bandwidth', '网络带宽', '網路頻寬'), info.networkBandwidth);
+                row(fragment, label('Position / duration', '进度 / 时长', '進度 / 時長'),
+                    `${formatTime(info.currentPosition)} / ${formatTime(info.duration)}`);
+                row(fragment, label('Buffered to', '已缓冲至', '已緩衝至'), formatTime(info.bufferPosition));
+                row(fragment, label('Playback speed', '播放速度'), `${info.playbackSpeed}×`);
+            }
+            section.replaceChildren(fragment);
+        }
+
+        window.VideoProxyCallback.onPlaybackInfo = data => {
+            syncPanel();
+            if (!subscribed) return;
+            latestInfo = data;
+            renderInfo(data);
+        };
+
+        // Ignore our own row updates; observe panel creation, visibility and removal.
+        const observer = new MutationObserver(mutations => {
+            if (mutations.some(mutation => !section?.contains(mutation.target))) scheduleSync();
         });
-
-        menuObserver.observe(document.documentElement, {
+        observer.observe(document.documentElement, {
             childList: true,
-            subtree: true
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class', 'hidden']
         });
-
-        console.log('[VideoProxy] Debug menu injection initialized');
+        document.addEventListener('visibilitychange', syncPanel);
+        window.addEventListener('pageshow', scheduleSync);
+        window.addEventListener('pagehide', () => {
+            if (subscribed) bridge.setPlaybackInfoVisible(false);
+            subscribed = false;
+            clearPanel();
+        });
+        syncPanel();
     })();
 
     console.log('[VideoProxy] Video element proxy initialized');
