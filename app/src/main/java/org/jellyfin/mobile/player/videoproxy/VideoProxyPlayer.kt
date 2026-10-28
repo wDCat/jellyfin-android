@@ -256,6 +256,7 @@ class VideoProxyPlayer(
         }
 
         surfaceView?.let { player?.setVideoSurfaceView(it) }
+        updateKeepScreenOn()
     }
 
     /**
@@ -263,8 +264,19 @@ class VideoProxyPlayer(
      * SurfaceView is used instead of TextureView to support HDR output.
      */
     fun setSurfaceView(surface: SurfaceView?) {
+        surfaceView?.keepScreenOn = false
         surfaceView = surface
         player?.setVideoSurfaceView(surface)
+        updateKeepScreenOn()
+    }
+
+    private fun updateKeepScreenOn() {
+        val player = player
+        // Keep the display awake through buffering, but allow sleep when playback stops.
+        // A per-view flag also lets multiple overlays hold the screen on independently.
+        surfaceView?.keepScreenOn = !isReleased && player != null && player.playWhenReady &&
+            player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+            (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY)
     }
 
     /**
@@ -574,6 +586,7 @@ class VideoProxyPlayer(
         Timber.d("Releasing VideoProxyPlayer for $videoId")
         
         isReleased = true
+        updateKeepScreenOn()
         player?.run {
             removeListener(this@VideoProxyPlayer)
             release()
@@ -586,6 +599,17 @@ class VideoProxyPlayer(
     }
 
     // Player.Listener implementation
+
+    override fun onEvents(player: Player, events: Player.Events) {
+        if (events.containsAny(
+                Player.EVENT_PLAYBACK_STATE_CHANGED,
+                Player.EVENT_PLAY_WHEN_READY_CHANGED,
+                Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED,
+            )
+        ) {
+            updateKeepScreenOn()
+        }
+    }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         Timber.d("Playback state changed for $videoId: $playbackState")
