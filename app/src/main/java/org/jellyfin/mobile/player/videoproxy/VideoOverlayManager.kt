@@ -1,6 +1,8 @@
 package org.jellyfin.mobile.player.videoproxy
 
+import android.app.AlertDialog
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -28,6 +30,7 @@ import kotlinx.coroutines.withContext
 import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.player.deviceprofile.DeviceProfileBuilder
 import org.jellyfin.mobile.player.source.MediaSourceResolver
+import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.webapp.WebappFunctionChannel
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.videosApi
@@ -63,6 +66,13 @@ class VideoOverlayManager(
     private val fullscreenVideos = mutableSetOf<String>()
     private var eventJob: Job? = null
     private var released = false
+    private var volumeDialog: AlertDialog? = null
+    private val volumePreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (!released && key == Constants.PREF_VIDEO_PROXY_VOLUME) {
+            val volume = appPreferences.videoProxyVolume
+            players.values.forEach { it.setIndependentVolume(volume) }
+        }
+    }
     private var overlayContainer: FrameLayout? = null
     private var subtitleContainer: FrameLayout? = null
     private var webView: WebView? = null
@@ -121,6 +131,7 @@ class VideoOverlayManager(
         this.overlayContainer = container
         this.subtitleContainer = subtitleContainer
         this.webView = webView
+        appPreferences.registerListener(volumePreferenceListener)
         container.addOnLayoutChangeListener(layoutChangeListener)
         webView.addOnLayoutChangeListener(layoutChangeListener)
         
@@ -143,6 +154,7 @@ class VideoOverlayManager(
     private fun handleEvent(event: VideoProxyEvent) {
         if (released) return
         when (event) {
+            VideoProxyEvent.ShowVolumeControl -> showVolumeControl()
             is VideoProxyEvent.VideoCreated -> createVideoOverlay(event.videoId)
             is VideoProxyEvent.VideoDestroyed -> destroyVideoOverlay(event.videoId)
             is VideoProxyEvent.SetSource -> setVideoSource(event.videoId, event.src)
@@ -191,6 +203,7 @@ class VideoOverlayManager(
             callback = this,
             mediaSourceFactory = mediaSourceFactory,
         )
+        player.setIndependentVolume(appPreferences.videoProxyVolume)
         player.initialize()
         players[videoId] = player
 
@@ -255,6 +268,10 @@ class VideoOverlayManager(
         resolutionJobs.remove(videoId)?.cancel()
         fullscreenVideos.remove(videoId)
         players.remove(videoId)?.release()
+        if (players.isEmpty()) {
+            volumeDialog?.dismiss()
+            volumeDialog = null
+        }
         videoBounds.remove(videoId)
         videoVisibility.remove(videoId)
         videoNativeSizes.remove(videoId)
@@ -356,9 +373,14 @@ class VideoOverlayManager(
         players[videoId]?.seekTo(timeMs)
     }
 
-    /**
-     * Set video volume.
-     */
+    /** Show the overlay volume control without changing the system media volume. */
+    private fun showVolumeControl() {
+        if (players.isEmpty() || volumeDialog?.isShowing == true) return
+        volumeDialog = showVideoProxyVolumeDialog(context, appPreferences) { volume ->
+            players.values.forEach { it.setIndependentVolume(volume) }
+        }
+    }
+
     private fun setVideoVolume(videoId: String, volume: Float) {
         Timber.d("Setting volume for $videoId: $volume")
         players[videoId]?.setVolume(volume)
@@ -785,6 +807,9 @@ class VideoOverlayManager(
      */
     fun release() {
         released = true
+        appPreferences.unregisterListener(volumePreferenceListener)
+        volumeDialog?.dismiss()
+        volumeDialog = null
         eventJob?.cancel()
         resolutionJobs.values.forEach { it.cancel() }
         resolutionJobs.clear()

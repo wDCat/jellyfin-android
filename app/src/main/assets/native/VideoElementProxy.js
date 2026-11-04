@@ -1076,6 +1076,7 @@
             this._nativeCreated = false;
             this.isProxied = false;
             proxiedVideos.delete(this.videoId);
+            document.dispatchEvent(new Event('videoproxychange'));
         }
 
         setSource(value) {
@@ -1120,6 +1121,7 @@
             }
             this.isProxied = true;
             proxiedVideos.set(this.videoId, this);
+            document.dispatchEvent(new Event('videoproxychange'));
             this.ensureNativePlayer();
             if (resolveBlob) {
                 bridge.resolveAndSetSource(this.videoId, this._playbackContext.itemId, this._playbackContext.mediaSourceId);
@@ -1881,6 +1883,57 @@
             });
         }
     });
+
+    /** Keep independent volume available on mobile, where web volume controls are hidden. */
+    (function integrateVolumeControl() {
+        const language = (document.documentElement.lang || navigator.language || '').toLowerCase();
+        const title = language.startsWith('zh')
+            ? (/^zh-(tw|hk|mo|hant)(-|$)/.test(language) ? '疊加播放器音量' : '叠加播放器音量')
+            : 'Overlay player volume';
+        let button = null;
+        let pendingSync = false;
+
+        function syncButton() {
+            pendingSync = false;
+            const active = Array.from(proxiedVideos.values())
+                .some(state => state.isProxied && state.originalVideo.isConnected);
+            const controls = active ? document.querySelector('#videoOsdPage .osdSecondaryButtons') : null;
+            if (!controls) {
+                button?.remove();
+                button = null;
+                return;
+            }
+            if (button?.parentElement === controls) return;
+            button?.remove();
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'paper-icon-button-light autoSize videoProxyVolumeButton';
+            button.title = title;
+            button.setAttribute('aria-label', title);
+            button.setAttribute('aria-haspopup', 'dialog');
+            const icon = document.createElement('span');
+            icon.className = 'xlargePaperIconButton material-icons volume_up';
+            icon.setAttribute('aria-hidden', 'true');
+            button.appendChild(icon);
+            button.addEventListener('click', event => {
+                event.stopPropagation();
+                bridge.showVolumeControl();
+            });
+            controls.insertBefore(button, controls.querySelector('.btnAudio'));
+        }
+
+        function scheduleSync() {
+            if (pendingSync) return;
+            pendingSync = true;
+            requestAnimationFrame(syncButton);
+        }
+
+        const observer = new MutationObserver(scheduleSync);
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+        document.addEventListener('videoproxychange', scheduleSync);
+        window.addEventListener('pageshow', scheduleSync);
+        syncButton();
+    })();
 
     /** Add native statistics to Jellyfin's existing playback info panel. */
     (function integratePlaybackInfo() {

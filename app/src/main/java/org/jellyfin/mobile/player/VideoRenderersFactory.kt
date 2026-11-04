@@ -2,16 +2,55 @@ package org.jellyfin.mobile.player
 
 import android.content.Context
 import android.os.Handler
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioOffloadSupport
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
 
 /** Adds software video decoding while preserving the existing audio renderers. */
 @UnstableApi
-class VideoRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+class VideoRenderersFactory(
+    context: Context,
+    private val audioProcessor: AudioProcessor? = null,
+) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackParams: Boolean,
+    ): AudioSink? {
+        val processor = audioProcessor
+            ?: return super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
+        val sink = DefaultAudioSink.Builder(context)
+            .setAudioProcessors(arrayOf(processor))
+            .setEnableFloatOutput(false)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .build()
+        // Encoded passthrough/offload bypasses PCM processors. Decode audio for independent gain.
+        return object : ForwardingAudioSink(sink) {
+            override fun supportsFormat(format: Format): Boolean =
+                getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
+
+            override fun getFormatSupport(format: Format): Int =
+                if (format.sampleMimeType == MimeTypes.AUDIO_RAW) {
+                    super.getFormatSupport(format)
+                } else {
+                    AudioSink.SINK_FORMAT_UNSUPPORTED
+                }
+
+            override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport =
+                AudioOffloadSupport.DEFAULT_UNSUPPORTED
+        }
+    }
+
     override fun buildVideoRenderers(
         context: Context,
         extensionRendererMode: Int,

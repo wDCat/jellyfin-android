@@ -61,6 +61,10 @@ class AppPreferences(context: Context) {
         sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
     }
 
+    fun unregisterListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     var currentServerId: Long?
         get() = sharedPreferences.getLong(Constants.PREF_SERVER_ID, -1).takeIf { it >= 0 }
         set(value) {
@@ -184,6 +188,13 @@ class AppPreferences(context: Context) {
     val videoProxyHardwareDecoding: Boolean
         get() = sharedPreferences.getBoolean(Constants.PREF_VIDEO_PROXY_HARDWARE_DECODING, true)
 
+    var videoProxyVolume: Int
+        get() = sharedPreferences.getInt(Constants.PREF_VIDEO_PROXY_VOLUME, DEFAULT_VIDEO_PROXY_VOLUME)
+            .coerceIn(0, MAX_VIDEO_PROXY_VOLUME)
+        set(value) = sharedPreferences.edit {
+            putInt(Constants.PREF_VIDEO_PROXY_VOLUME, value.coerceIn(0, MAX_VIDEO_PROXY_VOLUME))
+        }
+
     val subtitleOffset: Int
         get() = sharedPreferences.getInt(Constants.PREF_SUBTITLE_OFFSET, DEFAULT_SUBTITLE_OFFSET)
 
@@ -197,6 +208,8 @@ class AppPreferences(context: Context) {
         get() = sharedPreferences.getString(Constants.PREF_SUBTITLE_BACKGROUND, "transparent") ?: "transparent"
 
     companion object {
+        const val DEFAULT_VIDEO_PROXY_VOLUME = 100
+        const val MAX_VIDEO_PROXY_VOLUME = 200
         const val DEFAULT_SUBTITLE_OFFSET = 24
         const val DEFAULT_SUBTITLE_TEXT_SIZE = 18
     }

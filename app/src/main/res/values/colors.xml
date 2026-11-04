@@ -26,4 +26,6 @@
     <color name="video_buffering_background">#cc171717</color>
     <color name="video_buffering_border">#1affffff</color>
     <color name="video_buffering_text">#fafafa</color>
+    <color name="video_proxy_volume_secondary">#b0b0b0</color>
+    <color name="video_proxy_volume_boost">#ffc56b</color>
 </resources>

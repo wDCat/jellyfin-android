@@ -75,6 +75,7 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
     private lateinit var downloadLocationPreference: Preference
     private lateinit var videoProxyEnabledPreference: CheckBoxPreference
     private lateinit var videoProxyHardwareDecodingPreference: CheckBoxPreference
+    private lateinit var videoProxyVolumePreference: SeekBarPreference
     private lateinit var subtitleOffsetPreference: SeekBarPreference
     private lateinit var subtitleFontPreference: Preference
     private lateinit var subtitleTextSizePreference: SeekBarPreference
@@ -163,6 +164,7 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
                 videoProxyEnabledPreference.enabled = selection == VideoPlayerType.WEB_PLAYER
                 videoProxyHardwareDecodingPreference.enabled = selection == VideoPlayerType.WEB_PLAYER && videoProxyEnabledPreference.checked
                 val subtitlePrefsEnabled = selection == VideoPlayerType.WEB_PLAYER && videoProxyEnabledPreference.checked
+                videoProxyVolumePreference.enabled = subtitlePrefsEnabled
                 subtitleOffsetPreference.enabled = subtitlePrefsEnabled
                 subtitleFontPreference.enabled = subtitlePrefsEnabled
                 subtitleTextSizePreference.enabled = subtitlePrefsEnabled
@@ -238,6 +240,7 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
             enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER
             defaultOnCheckedChange { checked ->
                 videoProxyHardwareDecodingPreference.enabled = checked
+                videoProxyVolumePreference.enabled = checked
                 subtitleOffsetPreference.enabled = checked
                 subtitleFontPreference.enabled = checked
                 subtitleTextSizePreference.enabled = checked
@@ -249,6 +252,28 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
             summaryRes = R.string.pref_video_proxy_hardware_decoding_summary
             defaultValue = true
             enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+        }
+
+        videoProxyVolumePreference = seekBar(Constants.PREF_VIDEO_PROXY_VOLUME) {
+            titleRes = R.string.pref_video_proxy_volume_title
+            summaryRes = R.string.pref_video_proxy_volume_summary
+            min = 0
+            max = AppPreferences.MAX_VIDEO_PROXY_VOLUME
+            default = AppPreferences.DEFAULT_VIDEO_PROXY_VOLUME
+            step = 1
+            formatter = { "$it%" }
+            // The preference widget normally persists only when the user lifts their finger.
+            seekListener = SeekBarPreference.OnSeekListener { _, _, value ->
+                appPreferences.videoProxyVolume = value
+                true
+            }
+            enabled = appPreferences.videoPlayerType == VideoPlayerType.WEB_PLAYER && appPreferences.videoProxyEnabled
+            defaultOnClick {
+                showNumberInputDialog(
+                    R.string.pref_video_proxy_volume_title,
+                    videoProxyVolumePreference.value, 0, AppPreferences.MAX_VIDEO_PROXY_VOLUME, "%",
+                ) { videoProxyVolumePreference.value = it }
+            }
         }
 
         subtitleOffsetPreference = seekBar(Constants.PREF_SUBTITLE_OFFSET) {

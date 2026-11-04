@@ -16,4 +16,6 @@
     <dimen name="exo_chapter_marking_width">3dp</dimen>
     <dimen name="exo_chapter_marking_height">15dp</dimen>
     <dimen name="trickplay_thumbnail_height">160dp</dimen>
+    <dimen name="video_proxy_volume_dialog_padding">24dp</dimen>
+    <dimen name="video_proxy_volume_dialog_width">360dp</dimen>
 </resources>

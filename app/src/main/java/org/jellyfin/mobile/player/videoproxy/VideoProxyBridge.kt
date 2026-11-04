@@ -22,6 +22,11 @@ class VideoProxyBridge(
     @JavascriptInterface
     fun isEnabled(): Boolean = appPreferences.videoProxyEnabled
 
+    @JavascriptInterface
+    fun showVolumeControl() {
+        videoProxyEventChannel.trySend(VideoProxyEvent.ShowVolumeControl)
+    }
+
     /**
      * Check if hardware decoding is preferred.
      */
@@ -260,6 +265,7 @@ data class VideoBounds(
  * Sealed class representing events from JavaScript to native.
  */
 sealed class VideoProxyEvent {
+    data object ShowVolumeControl : VideoProxyEvent()
     data class VideoCreated(val videoId: String) : VideoProxyEvent()
     data class VideoDestroyed(val videoId: String) : VideoProxyEvent()
     data class SetSource(val videoId: String, val src: String) : VideoProxyEvent()

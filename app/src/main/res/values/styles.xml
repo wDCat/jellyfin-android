@@ -23,4 +23,13 @@
     <style name="ThemeOverlay.App.BackButton" parent="">
         <item name="colorControlNormal">?android:textColorPrimary</item>
     </style>
+    <style name="VideoProxyVolumeScale" parent="">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textColor">@color/video_proxy_volume_secondary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:importantForAccessibility">no</item>
+    </style>
+
 </resources>

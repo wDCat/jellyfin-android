@@ -135,6 +135,7 @@ class VideoProxyPlayer(
         private const val POST_SEEK_SKIP_CYCLES = 3
     }
 
+    private val volumeProcessor = VideoProxyVolumeProcessor()
     private var player: ExoPlayer? = null
     private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
@@ -171,7 +172,7 @@ class VideoProxyPlayer(
 
         Timber.d("Initializing VideoProxyPlayer for $videoId")
 
-        val renderersFactory = VideoRenderersFactory(context).apply {
+        val renderersFactory = VideoRenderersFactory(context, volumeProcessor).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -351,10 +352,15 @@ class VideoProxyPlayer(
     }
 
     /**
-     * Set the volume level (0.0 to 1.0).
+     * Set the independent overlay volume (0 to 200 percent).
      */
+    fun setIndependentVolume(percent: Int) {
+        volumeProcessor.setVolumePercent(percent)
+    }
+
+    /** Set the HTML media volume (0.0 to 1.0), including web mute. */
     fun setVolume(volume: Float) {
-        player?.volume = volume.coerceIn(0f, 1f)
+        if (volume.isFinite()) player?.volume = volume.coerceIn(0f, 1f)
     }
 
     /**
@@ -544,7 +550,7 @@ class VideoProxyPlayer(
             currentPosition = player.currentPosition,
             duration = player.duration.takeIf { it != C.TIME_UNSET } ?: 0L,
             playbackSpeed = player.playbackParameters.speed,
-            volume = player.volume,
+            volume = player.volume * volumeProcessor.gain,
             isHardwareDecoding = isHw,
             surfaceSize = surfaceSizeStr,
             networkBandwidth = bandwidthStr,

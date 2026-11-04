@@ -128,4 +128,12 @@
     <string name="skip_media_segment">跳過</string>
     <string name="external_player_mpvkt">mpvKt 播放器</string>
     <string name="no">否</string>
+    <string name="pref_video_proxy_volume_title">疊加播放器音量</string>
+    <string name="pref_video_proxy_volume_summary">拖動即時生效，獨立於系統音量。超過 100% 可放大聲音。</string>
+    <string name="pref_video_proxy_volume_value">%1$d%%</string>
+    <string name="pref_video_proxy_volume_muted">靜音</string>
+    <string name="pref_video_proxy_volume_reduced">降低音量</string>
+    <string name="pref_video_proxy_volume_normal">原始音量</string>
+    <string name="pref_video_proxy_volume_boost">音量增強</string>
+    <string name="pref_video_proxy_volume_done">完成</string>
 </resources>

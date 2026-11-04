@@ -178,4 +178,12 @@
     <string name="custom_hosts_invalid_line">第 %1$s 行 hosts 格式错误，请填写 IP 地址和域名。</string>
     <string name="custom_hosts_webview_unsupported">请更新 Android 系统 WebView 后启用自定义 hosts。</string>
     <string name="custom_hosts_proxy_failed">无法为 WebView 应用自定义 hosts，请检查 hosts 设置和 WebView 版本。</string>
+    <string name="pref_video_proxy_volume_title">叠加播放器音量</string>
+    <string name="pref_video_proxy_volume_summary">拖动即时生效，独立于系统音量。超过 100% 可放大声音。</string>
+    <string name="pref_video_proxy_volume_value">%1$d%%</string>
+    <string name="pref_video_proxy_volume_muted">静音</string>
+    <string name="pref_video_proxy_volume_reduced">降低音量</string>
+    <string name="pref_video_proxy_volume_normal">原始音量</string>
+    <string name="pref_video_proxy_volume_boost">音量增强</string>
+    <string name="pref_video_proxy_volume_done">完成</string>
 </resources>
