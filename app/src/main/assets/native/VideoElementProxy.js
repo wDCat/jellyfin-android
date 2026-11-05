@@ -2041,6 +2041,36 @@
             parent.appendChild(item);
         }
 
+        function playbackRows(info) {
+            const makeRow = (label, value) => ({ label, value: String(value ?? '') });
+            return [
+                makeRow(label('State', '状态', '狀態'), info.playbackState),
+                makeRow(label('Video decoder', '视频解码器', '視訊解碼器'), info.videoDecoderName),
+                makeRow(label('Hardware decoding', '硬件解码', '硬體解碼'),
+                    info.isHardwareDecoding ? label('Yes', '是') : label('No', '否')),
+                makeRow(label('Video format', '视频格式', '視訊格式'), info.videoFormat),
+                makeRow(label('Resolution', '分辨率', '解析度'), info.resolution),
+                makeRow(label('Frame rate', '帧率', '幀率'), info.frameRate),
+                makeRow(label('Video bitrate', '视频码率', '視訊位元率'), info.videoBitrate),
+                makeRow(label('Surface size', '渲染尺寸'), info.surfaceSize),
+                makeRow(label('Rendered / dropped frames', '已渲染 / 丢弃帧', '已渲染 / 丟棄幀'),
+                    `${info.renderedFrames} / ${info.droppedFrames}`),
+                makeRow(label('Audio decoder', '音频解码器', '音訊解碼器'), info.audioDecoderName),
+                makeRow(label('Audio format', '音频格式', '音訊格式'), info.audioFormat),
+                makeRow(label('Audio bitrate', '音频码率', '音訊位元率'), info.audioBitrate),
+                makeRow(label('Volume', '音量'), `${Math.round(info.volume * 100)}%`),
+                makeRow(label('Native subtitles', '原生字幕'),
+                    info.textTrackEnabled ? label('Enabled', '已启用', '已啟用') : label('Disabled', '未启用', '未啟用')),
+                ...info.subtitleTracks.map(track => makeRow(label('Subtitle track', '字幕轨道', '字幕軌道'),
+                    `${track.isSelected ? '▸ ' : ''}[${track.language || '?'}] ${track.label || track.index} (${track.codec})`)),
+                makeRow(label('Network bandwidth', '网络带宽', '網路頻寬'), info.networkBandwidth),
+                makeRow(label('Position / duration', '进度 / 时长', '進度 / 時長'),
+                    `${formatTime(info.currentPosition)} / ${formatTime(info.duration)}`),
+                makeRow(label('Buffered to', '已缓冲至', '已緩衝至'), formatTime(info.bufferPosition)),
+                makeRow(label('Playback speed', '播放速度'), `${info.playbackSpeed}×`),
+            ];
+        }
+
         function renderInfo(data) {
             if (!section || !panel) return;
             const scale = data.viewportWidth > 0 ? window.innerWidth / data.viewportWidth : 1;
@@ -2050,32 +2080,9 @@
             const infos = data.players.filter(info => info.isProxying && proxiedVideos.get(info.videoId)?.isProxied);
             for (const info of infos) {
                 row(fragment, 'ExoPlayer', infos.length > 1 ? info.videoId : '', true);
-                row(fragment, label('State', '状态', '狀態'), info.playbackState);
-                row(fragment, label('Video decoder', '视频解码器', '視訊解碼器'), info.videoDecoderName);
-                row(fragment, label('Hardware decoding', '硬件解码', '硬體解碼'),
-                    info.isHardwareDecoding ? label('Yes', '是') : label('No', '否'));
-                row(fragment, label('Video format', '视频格式', '視訊格式'), info.videoFormat);
-                row(fragment, label('Resolution', '分辨率', '解析度'), info.resolution);
-                row(fragment, label('Frame rate', '帧率', '幀率'), info.frameRate);
-                row(fragment, label('Video bitrate', '视频码率', '視訊位元率'), info.videoBitrate);
-                row(fragment, label('Surface size', '渲染尺寸'), info.surfaceSize);
-                row(fragment, label('Rendered / dropped frames', '已渲染 / 丢弃帧', '已渲染 / 丟棄幀'),
-                    `${info.renderedFrames} / ${info.droppedFrames}`);
-                row(fragment, label('Audio decoder', '音频解码器', '音訊解碼器'), info.audioDecoderName);
-                row(fragment, label('Audio format', '音频格式', '音訊格式'), info.audioFormat);
-                row(fragment, label('Audio bitrate', '音频码率', '音訊位元率'), info.audioBitrate);
-                row(fragment, label('Volume', '音量'), `${Math.round(info.volume * 100)}%`);
-                row(fragment, label('Native subtitles', '原生字幕'),
-                    info.textTrackEnabled ? label('Enabled', '已启用', '已啟用') : label('Disabled', '未启用', '未啟用'));
-                for (const track of info.subtitleTracks) {
-                    row(fragment, label('Subtitle track', '字幕轨道', '字幕軌道'),
-                        `${track.isSelected ? '▸ ' : ''}[${track.language || '?'}] ${track.label || track.index} (${track.codec})`);
+                for (const stat of playbackRows(info)) {
+                    row(fragment, stat.label, stat.value);
                 }
-                row(fragment, label('Network bandwidth', '网络带宽', '網路頻寬'), info.networkBandwidth);
-                row(fragment, label('Position / duration', '进度 / 时长', '進度 / 時長'),
-                    `${formatTime(info.currentPosition)} / ${formatTime(info.duration)}`);
-                row(fragment, label('Buffered to', '已缓冲至', '已緩衝至'), formatTime(info.bufferPosition));
-                row(fragment, label('Playback speed', '播放速度'), `${info.playbackSpeed}×`);
             }
             section.replaceChildren(fragment);
         }
