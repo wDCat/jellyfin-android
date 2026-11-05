@@ -53,7 +53,7 @@ import org.jellyfin.mobile.utils.dip
 import org.jellyfin.mobile.utils.extensions.getParcelableCompat
 import org.jellyfin.mobile.utils.extensions.replaceFragment
 import org.jellyfin.mobile.utils.fadeIn
-import org.jellyfin.mobile.utils.isOutdated
+import org.jellyfin.mobile.utils.getWebViewMajorVersion
 import org.jellyfin.mobile.utils.requestNoBatteryOptimizations
 import org.jellyfin.mobile.utils.runOnUiThread
 import org.jellyfin.sdk.api.client.ApiClient
@@ -181,9 +181,6 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             }
         }
 
-        // Apply window insets
-        webView.applyWindowInsetsAsMargins()
-
         // Setup exclusion rects for gestures
         if (AndroidVersion.isAtLeastQ) {
             @Suppress("MagicNumber")
@@ -251,10 +248,16 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     }
 
     private fun WebView.initialize() {
-        if (!appPreferences.ignoreWebViewChecks && isOutdated()) { // Check WebView version
+        val webViewVersion = getWebViewMajorVersion()
+        // M144 forwards system bar and cutout insets to CSS while the page draws behind the bars.
+        if (webViewVersion < Constants.WEB_VIEW_SAFE_AREA_VERSION) {
+            applyWindowInsetsAsMargins()
+        }
+        if (!appPreferences.ignoreWebViewChecks && webViewVersion < Constants.MINIMUM_WEB_VIEW_VERSION) {
             showOutdatedWebViewDialog(this)
             return
         }
+
         webViewClient = jellyfinWebViewClient
         webChromeClient = JellyfinWebChromeClient(
             this@WebViewFragment,

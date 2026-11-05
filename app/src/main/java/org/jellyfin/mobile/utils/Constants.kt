@@ -13,6 +13,7 @@ object Constants {
 
     // Webapp constants
     const val MINIMUM_WEB_VIEW_VERSION = 80
+    const val WEB_VIEW_SAFE_AREA_VERSION = 144
     const val SHOW_PROGRESS_BAR_DELAY = 1000L
     const val INITIAL_CONNECTION_TIMEOUT = 10000L // 10 seconds
     val MAIN_BUNDLE_PATH_REGEX = Regex(""".*/main\.[^/\s]+\.bundle\.js""")

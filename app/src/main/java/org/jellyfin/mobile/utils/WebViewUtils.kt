@@ -40,10 +40,7 @@ fun Context.isWebViewSupported(): Boolean {
     return packageManager.hasSystemFeature(PackageManager.FEATURE_WEBVIEW)
 }
 
-fun WebView.isOutdated(): Boolean =
-    getWebViewMajorVersion() < Constants.MINIMUM_WEB_VIEW_VERSION
-
-private fun WebView.getWebViewMajorVersion(): Int {
+fun WebView.getWebViewMajorVersion(): Int {
     val userAgent = getDefaultUserAgentString()
     val version = """.*Chrome/(\d+)\..*""".toRegex().matchEntire(userAgent)?.let { match ->
         match.groupValues.getOrNull(1)?.toInt()

@@ -6,6 +6,23 @@
         mainScript.src.concat('?deferred=true&ts=', Date.now())
     ];
 
+    // Give the video element a safe content box so native proxy bounds also stay below the status bar.
+    const playbackInsets = document.createElement('style');
+    playbackInsets.textContent = `
+        @media (orientation: portrait) {
+            /* Episode mode uses this height to align the video, controls and episode panel. */
+            html body.episodeModeActive {
+                --episode-video-height: calc(min(56.25vw, 55vh) + env(safe-area-inset-top, 0px));
+            }
+
+            .videoPlayerContainer {
+                box-sizing: border-box;
+                padding-top: env(safe-area-inset-top, 0px);
+            }
+        }
+    `;
+    document.head.appendChild(playbackInsets);
+
     function loadWebClient() {
         for (const script of scripts) {
             const scriptElement = document.createElement('script');
