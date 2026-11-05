@@ -256,7 +256,10 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             return
         }
         webViewClient = jellyfinWebViewClient
-        webChromeClient = JellyfinWebChromeClient(this@WebViewFragment)
+        webChromeClient = JellyfinWebChromeClient(
+            this@WebViewFragment,
+            videoProxyEnabled = appPreferences.videoProxyEnabled,
+        )
         settings.applyDefault()
         addJavascriptInterface(NativeInterface(requireContext()), "NativeInterface")
         addJavascriptInterface(nativePlayer, "NativePlayer")

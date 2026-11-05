@@ -2,6 +2,8 @@ package org.jellyfin.mobile.webapp
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.os.Message
 import android.util.Log
@@ -10,13 +12,22 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import androidx.webkit.WebViewClientCompat
 import timber.log.Timber
 
 class JellyfinWebChromeClient(
     private val fileChooserListener: FileChooserListener,
+    private val videoProxyEnabled: Boolean,
 ) : WebChromeClient() {
+    private val blackVideoPoster: Bitmap by lazy {
+        createBitmap(1, 1).apply { eraseColor(Color.BLACK) }
+    }
+
+    override fun getDefaultVideoPoster(): Bitmap? =
+        if (videoProxyEnabled) blackVideoPoster else super.getDefaultVideoPoster()
+
     override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
         val logLevel = when (consoleMessage.messageLevel()) {
             ConsoleMessage.MessageLevel.ERROR -> Log.ERROR
