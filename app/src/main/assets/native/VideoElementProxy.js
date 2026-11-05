@@ -1942,11 +1942,18 @@
         const chinese = language.startsWith('zh');
         const traditional = /^zh-(tw|hk|mo|hant)(-|$)/.test(language);
         const label = (en, zh, hant = zh) => chinese ? (traditional ? hant : zh) : en;
+        const id = 'org.jellyfin.android.exoplayer';
         let panel = null;
         let section = null;
-        let subscribed = false;
+        let generation = 0;
+        let sampling = null;
+        let published = null;
+        let integration = null;
+        let unsubscribe = null;
+        let playbackInfoState = null;
+        let observer = null;
+        let suspended = false;
         let pendingSync = false;
-        let latestInfo = null;
 
         const style = document.createElement('style');
         style.textContent = `
@@ -1984,34 +1991,77 @@
             section?.remove();
             panel = null;
             section = null;
-            latestInfo = null;
+        }
+
+        function visiblePanel() {
+            return Array.from(document.querySelectorAll('.playerStats:not(.hide)'))
+                .find(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+        }
+
+        function setSampling(scope, videoId) {
+            if (sampling && sampling.scope === scope && sampling.videoId === videoId) return;
+            const nextGeneration = `${pageId}:${++generation}`;
+            sampling = { scope, videoId, generation: nextGeneration };
+            bridge.setPlaybackInfoVisible(true, nextGeneration, videoId || '');
+        }
+
+        function stopSampling() {
+            if (!sampling) return;
+            sampling = null;
+            bridge.setPlaybackInfoVisible(false, '', '');
+        }
+
+        function clearPublished() {
+            if (!published) return;
+            integration.setPlaybackInfoSection(published.scope, id, null);
+            published = null;
+        }
+
+        function currentProxy(state) {
+            const video = state?.videoElement;
+            if (!video?.isConnected) return null;
+            return Array.from(proxiedVideos.values()).find(proxy => {
+                if (!proxy.isProxied || proxy.originalVideo !== video) return false;
+                const context = proxy._playbackContext;
+                return (!context?.itemId || normalizeId(context.itemId) === normalizeId(state.itemId))
+                    && (!context?.mediaSourceId || !state.mediaSourceId
+                        || normalizeId(context.mediaSourceId) === normalizeId(state.mediaSourceId));
+            });
         }
 
         function syncPanel() {
             pendingSync = false;
+            if (suspended) return;
+            if (integration) {
+                const { scope, visible } = playbackInfoState;
+                const proxy = scope && currentProxy(integration.getState());
+                if (published && (published.scope !== scope || published.videoId !== proxy?.videoId)) clearPublished();
+                if (visible && proxy) {
+                    setSampling(scope, proxy.videoId);
+                } else {
+                    stopSampling();
+                    clearPanel();
+                }
+                return;
+            }
+
             const active = Array.from(proxiedVideos.values())
                 .some(state => state.isProxied && state.originalVideo.isConnected);
-            const nextPanel = active && !document.hidden
-                ? Array.from(document.querySelectorAll('.playerStats:not(.hide)'))
-                    .find(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')
-                : null;
+            const nextPanel = active && !document.hidden ? visiblePanel() : null;
             const content = nextPanel?.querySelector('.playerStats-content');
-            const visible = !!content;
-            if (!visible || nextPanel !== panel) clearPanel();
-            if (visible && (!section || !section.isConnected)) {
+            if (!content || nextPanel !== panel) clearPanel();
+            if (!content) {
+                stopSampling();
+                return;
+            }
+            if (!section?.isConnected) {
                 panel = nextPanel;
                 panel.classList.add('videoProxyPlayerStats');
                 section = document.createElement('div');
                 section.className = 'playerStats-stats videoProxyPlaybackInfo';
-                // Jellyfin replaces .playerStats-stats.innerHTML on each refresh.
-                // Keep our section after that element, inside the same scroll container.
                 content.appendChild(section);
-                if (latestInfo) renderInfo(latestInfo);
             }
-            if (visible !== subscribed) {
-                subscribed = visible;
-                bridge.setPlaybackInfoVisible(visible);
-            }
+            setSampling(null, null);
         }
 
         function scheduleSync() {
@@ -2071,11 +2121,42 @@
             ];
         }
 
-        function renderInfo(data) {
-            if (!section || !panel) return;
+        function applySafeArea(data) {
+            if (!panel) return;
             const scale = data.viewportWidth > 0 ? window.innerWidth / data.viewportWidth : 1;
             panel.style.setProperty('--vp-safe-left', `${(data.safeArea?.left || 0) * scale}px`);
             panel.style.setProperty('--vp-safe-right', `${(data.safeArea?.right || 0) * scale}px`);
+        }
+
+        window.VideoProxyCallback.onPlaybackInfo = data => {
+            if (!integration) syncPanel();
+            const batch = sampling;
+            if (!batch || data.generation !== batch.generation) return;
+            if (integration) {
+                const state = integration.getState();
+                if (!playbackInfoState.visible || playbackInfoState.scope !== batch.scope
+                    || state.ui?.id !== batch.scope.uiId || state.playbackId !== batch.scope.playbackId
+                    || currentProxy(state)?.videoId !== batch.videoId) return;
+                const nextPanel = visiblePanel();
+                if (nextPanel !== panel) {
+                    clearPanel();
+                    panel = nextPanel;
+                    panel?.classList.add('videoProxyPlayerStats');
+                }
+                applySafeArea(data);
+                const info = data.players.find(info => info.videoId === batch.videoId && info.isProxying);
+                if (!info) {
+                    clearPublished();
+                    return;
+                }
+                if (integration.setPlaybackInfoSection(batch.scope, id, {
+                    name: 'ExoPlayer',
+                    stats: playbackRows(info)
+                })) published = batch;
+                return;
+            }
+
+            applySafeArea(data);
             const fragment = document.createDocumentFragment();
             const infos = data.players.filter(info => info.isProxying && proxiedVideos.get(info.videoId)?.isProxied);
             for (const info of infos) {
@@ -2085,33 +2166,59 @@
                 }
             }
             section.replaceChildren(fragment);
-        }
-
-        window.VideoProxyCallback.onPlaybackInfo = data => {
-            syncPanel();
-            if (!subscribed) return;
-            latestInfo = data;
-            renderInfo(data);
         };
 
-        // Ignore our own row updates; observe panel creation, visibility and removal.
-        const observer = new MutationObserver(mutations => {
-            if (mutations.some(mutation => !section?.contains(mutation.target))) scheduleSync();
+        function connect() {
+            if (suspended || unsubscribe) return;
+            const api = window.JellyfinPlayerIntegration;
+            const canPublish = typeof api?.setPlaybackInfoSection === 'function';
+            const canSubscribe = typeof api?.subscribePlaybackInfo === 'function';
+            if (canPublish && canSubscribe) {
+                observer?.disconnect();
+                observer = null;
+                stopSampling();
+                clearPanel();
+                integration = api;
+                unsubscribe = api.subscribePlaybackInfo(state => {
+                    playbackInfoState = state;
+                    syncPanel();
+                });
+            } else if (!observer) {
+                observer = new MutationObserver(mutations => {
+                    if (mutations.some(mutation => !section?.contains(mutation.target))) scheduleSync();
+                });
+                observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['class', 'hidden']
+                });
+                syncPanel();
+            }
+        }
+
+        document.addEventListener('videoproxychange', scheduleSync);
+        document.addEventListener('visibilitychange', () => {
+            if (!integration) syncPanel();
         });
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'hidden']
+        window.addEventListener('jellyfin-player-integration-ready', connect);
+        window.addEventListener('pageshow', () => {
+            suspended = false;
+            connect();
         });
-        document.addEventListener('visibilitychange', syncPanel);
-        window.addEventListener('pageshow', scheduleSync);
         window.addEventListener('pagehide', () => {
-            if (subscribed) bridge.setPlaybackInfoVisible(false);
-            subscribed = false;
+            suspended = true;
+            unsubscribe?.();
+            unsubscribe = null;
+            observer?.disconnect();
+            observer = null;
+            clearPublished();
+            playbackInfoState = null;
+            integration = null;
+            stopSampling();
             clearPanel();
         });
-        syncPanel();
+        connect();
     })();
 
     console.log('[VideoProxy] Video element proxy initialized');

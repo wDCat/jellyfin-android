@@ -108,7 +108,7 @@ class VideoOverlayManager(
     private val progressUpdateIntervalMs = 250L
 
     // Native statistics are sent only while Jellyfin's playback info panel is open.
-    private var playbackInfoVisible = false
+    private var playbackInfoSubscription: VideoProxyEvent.SetPlaybackInfoVisible? = null
     private var statsUpdateCounter = 0
 
     // Bitrate indicator (top-right corner, shown during buffering)
@@ -170,7 +170,10 @@ class VideoOverlayManager(
             is VideoProxyEvent.SetSubtitleTrack -> setSubtitleTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.DisableSubtitleTrack -> disableSubtitleTrack(event.videoId)
             is VideoProxyEvent.ResolveAndSetSource -> resolveAndSetVideoSource(event.videoId, event.itemId, event.mediaSourceId)
-            is VideoProxyEvent.SetPlaybackInfoVisible -> setPlaybackInfoVisible(event.visible)
+            is VideoProxyEvent.SetPlaybackInfoVisible -> {
+                playbackInfoSubscription = event.takeIf { it.visible }
+                if (event.visible) updatePlaybackInfo()
+            }
         }
     }
 
@@ -284,7 +287,7 @@ class VideoOverlayManager(
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
         }
 
-        if (playbackInfoVisible) updatePlaybackInfo()
+        updatePlaybackInfo()
     }
 
     /**
@@ -762,7 +765,7 @@ class VideoOverlayManager(
                 statsUpdateCounter++
                 if (statsUpdateCounter >= 2) {
                     statsUpdateCounter = 0
-                    if (playbackInfoVisible) {
+                    if (playbackInfoSubscription != null) {
                         try {
                             updatePlaybackInfo()
                         } catch (e: Exception) {
@@ -783,16 +786,18 @@ class VideoOverlayManager(
         }
     }
 
-    private fun setPlaybackInfoVisible(visible: Boolean) {
-        playbackInfoVisible = visible
-        if (visible) updatePlaybackInfo()
-    }
-
     private fun updatePlaybackInfo() {
+        val subscription = playbackInfoSubscription ?: return
         val view = webView ?: return
+        val sampledPlayers = if (subscription.videoId.isEmpty()) {
+            players.values
+        } else {
+            listOfNotNull(players[subscription.videoId])
+        }
         val insets = ViewCompat.getRootWindowInsets(view)?.getInsets(WindowInsetsCompat.Type.displayCutout()) ?: Insets.NONE
         val payload = JSONObject().apply {
-            put("players", JSONArray(players.values.map { it.getDebugInfo().toPlaybackInfoJson() }))
+            put("generation", subscription.generation)
+            put("players", JSONArray(sampledPlayers.map { it.getDebugInfo().toPlaybackInfoJson() }))
             put("viewportWidth", view.width)
             put("safeArea", JSONObject().apply {
                 put("left", insets.left)
@@ -844,7 +849,7 @@ class VideoOverlayManager(
         overlayContainer = null
         subtitleContainer = null
         webView = null
-        playbackInfoVisible = false
+        playbackInfoSubscription = null
         bitrateIndicatorContainer?.visibility = View.GONE
         bitrateIndicatorView = null
         bitrateIndicatorContainer = null

@@ -198,8 +198,8 @@ class VideoProxyBridge(
      * Subscribe to native statistics while Jellyfin's playback info panel is visible.
      */
     @JavascriptInterface
-    fun setPlaybackInfoVisible(visible: Boolean) {
-        videoProxyEventChannel.trySend(VideoProxyEvent.SetPlaybackInfoVisible(visible))
+    fun setPlaybackInfoVisible(visible: Boolean, generation: String, videoId: String) {
+        videoProxyEventChannel.trySend(VideoProxyEvent.SetPlaybackInfoVisible(visible, generation, videoId))
     }
 
     /**
@@ -281,5 +281,5 @@ sealed class VideoProxyEvent {
     data class SetSubtitleTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class DisableSubtitleTrack(val videoId: String) : VideoProxyEvent()
     data class ResolveAndSetSource(val videoId: String, val itemId: String, val mediaSourceId: String) : VideoProxyEvent()
-    data class SetPlaybackInfoVisible(val visible: Boolean) : VideoProxyEvent()
+    data class SetPlaybackInfoVisible(val visible: Boolean, val generation: String, val videoId: String) : VideoProxyEvent()
 }
