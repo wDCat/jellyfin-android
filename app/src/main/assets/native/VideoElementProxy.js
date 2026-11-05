@@ -1919,7 +1919,8 @@
                 event.stopPropagation();
                 bridge.showVolumeControl();
             });
-            controls.insertBefore(button, controls.querySelector('.btnAudio'));
+            const settingsButton = controls.querySelector('.btnVideoOsdSettings');
+            controls.insertBefore(button, settingsButton ?? controls.querySelector('.btnAudio'));
         }
 
         function scheduleSync() {
