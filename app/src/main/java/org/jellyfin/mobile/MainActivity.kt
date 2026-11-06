@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.os.Bundle
 import android.os.IBinder
+import android.os.Process
 import android.provider.Settings
 import android.view.OrientationEventListener
 import android.widget.Toast
@@ -49,6 +50,8 @@ class MainActivity : AppCompatActivity() {
     val chromecast: IChromecast = Chromecast()
     private val permissionRequestHelper: PermissionRequestHelper by inject()
 
+    private var exitProcessOnDestroy = false
+
     var serviceBinder: RemotePlayerService.ServiceBinder? = null
         private set
     private val serviceConnection: ServiceConnection = object : ServiceConnection {
@@ -69,7 +72,7 @@ class MainActivity : AppCompatActivity() {
      * If the current fragment does not implement [BackPressInterceptor] or has decided not to intercept the event
      * (see result of [BackPressInterceptor.onInterceptBackPressed]), the topmost backstack entry will be popped.
      *
-     * If there is no topmost backstack entry, the event will be passed onto the dispatcher's fallback handler.
+     * At the root, debug builds exit and release builds use the dispatcher's fallback handler.
      */
     private val onBackPressedCallback: OnBackPressedCallback.() -> Unit = callback@{
         val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
@@ -84,6 +87,11 @@ class MainActivity : AppCompatActivity() {
             return@callback
         }
 
+        if (BuildConfig.DEBUG) {
+            exitApp()
+            return@callback
+        }
+
         // Let the system handle the back press
         isEnabled = false
         // Make sure that we *really* call the fallback handler
@@ -92,6 +100,17 @@ class MainActivity : AppCompatActivity() {
         }
         onBackPressedDispatcher.onBackPressed()
         isEnabled = true // re-enable callback in case activity isn't finished
+    }
+
+    internal fun exitApp() {
+        if (BuildConfig.DEBUG) {
+            exitProcessOnDestroy = true
+            finishAndRemoveTask()
+        } else if (serviceBinder?.isPlaying == true) {
+            moveTaskToBack(false)
+        } else {
+            finish()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -210,5 +229,10 @@ class MainActivity : AppCompatActivity() {
         unbindService(serviceConnection)
         chromecast.destroy()
         super.onDestroy()
+
+        if (exitProcessOnDestroy) {
+            stopService(Intent(this, RemotePlayerService::class.java))
+            Process.killProcess(Process.myPid())
+        }
     }
 }

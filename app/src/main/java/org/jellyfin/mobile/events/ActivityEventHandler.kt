@@ -108,13 +108,7 @@ class ActivityEventHandler(
             ActivityEvent.SelectServer -> {
                 mainViewModel.resetServer()
             }
-            ActivityEvent.ExitApp -> {
-                if (serviceBinder?.isPlaying == true) {
-                    moveTaskToBack(false)
-                } else {
-                    finish()
-                }
-            }
+            ActivityEvent.ExitApp -> exitApp()
         }
     }
 
