@@ -136,4 +136,9 @@
     <string name="pref_video_proxy_volume_normal">原始音量</string>
     <string name="pref_video_proxy_volume_boost">音量增強</string>
     <string name="pref_video_proxy_volume_done">完成</string>
+    <string name="pref_category_developer">開發選項</string>
+    <string name="pref_end_process_on_exit_title">結束應用程式時終止處理程序</string>
+    <string name="pref_end_process_on_exit_summary">按返回鍵離開應用程式時終止處理程序。</string>
+    <string name="pref_clear_cache_on_startup_title">冷啟動時清除快取</string>
+    <string name="pref_clear_cache_on_startup_summary">應用程式的處理程序啟動時清除應用程式與 WebView 快取。</string>
 </resources>

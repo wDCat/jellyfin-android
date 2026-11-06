@@ -23,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.events.ActivityEventHandler
 import org.jellyfin.mobile.player.cast.Chromecast
 import org.jellyfin.mobile.player.cast.IChromecast
@@ -44,6 +45,7 @@ import org.koin.androidx.fragment.android.setupKoinFragmentFactory
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class MainActivity : AppCompatActivity() {
+    private val appPreferences: AppPreferences by inject()
     private val activityEventHandler: ActivityEventHandler = get()
     val mainViewModel: MainViewModel by viewModel()
     val bluetoothPermissionHelper: BluetoothPermissionHelper = BluetoothPermissionHelper(this, get())
@@ -72,7 +74,7 @@ class MainActivity : AppCompatActivity() {
      * If the current fragment does not implement [BackPressInterceptor] or has decided not to intercept the event
      * (see result of [BackPressInterceptor.onInterceptBackPressed]), the topmost backstack entry will be popped.
      *
-     * At the root, debug builds exit and release builds use the dispatcher's fallback handler.
+     * At the root, use the dispatcher's fallback handler unless ending the process on exit is enabled.
      */
     private val onBackPressedCallback: OnBackPressedCallback.() -> Unit = callback@{
         val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
@@ -87,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             return@callback
         }
 
-        if (BuildConfig.DEBUG) {
+        if (shouldEndProcessOnExit) {
             exitApp()
             return@callback
         }
@@ -102,8 +104,11 @@ class MainActivity : AppCompatActivity() {
         isEnabled = true // re-enable callback in case activity isn't finished
     }
 
+    private val shouldEndProcessOnExit: Boolean
+        get() = BuildConfig.DEBUG && appPreferences.endProcessOnExit
+
     internal fun exitApp() {
-        if (BuildConfig.DEBUG) {
+        if (shouldEndProcessOnExit) {
             exitProcessOnDestroy = true
             finishAndRemoveTask()
         } else if (serviceBinder?.isPlaying == true) {

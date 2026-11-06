@@ -32,6 +32,8 @@ object Constants {
     const val PREF_IGNORE_BLUETOOTH_PERMISSION = "pref_ignore_bluetooth_permission"
     const val PREF_CUSTOM_HOSTS_ENABLED = "pref_custom_hosts_enabled"
     const val PREF_CUSTOM_HOSTS_ENTRIES = "pref_custom_hosts_entries"
+    const val PREF_END_PROCESS_ON_EXIT = "pref_end_process_on_exit"
+    const val PREF_CLEAR_CACHE_ON_STARTUP = "pref_clear_cache_on_startup"
     const val PREF_DOWNLOAD_METHOD = "pref_download_method"
     const val PREF_MUSIC_NOTIFICATION_ALWAYS_DISMISSIBLE = "pref_music_notification_always_dismissible"
     const val PREF_VIDEO_PLAYER_TYPE = "pref_video_player_type"

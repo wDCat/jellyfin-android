@@ -2,6 +2,7 @@ package org.jellyfin.mobile
 
 import android.app.Application
 import android.webkit.WebView
+import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.app.apiModule
 import org.jellyfin.mobile.app.applicationModule
 import org.jellyfin.mobile.data.databaseModule
@@ -20,21 +21,7 @@ class JellyfinApplication : Application() {
         // Setup logging
         Timber.plant(JellyTree())
 
-        if (BuildConfig.DEBUG) {
-            for (directory in externalCacheDirs + cacheDir) {
-                directory?.listFiles()?.forEach { it.deleteRecursively() }
-            }
-
-            if (isWebViewSupported()) {
-                WebView(this).apply {
-                    clearCache(true)
-                    destroy()
-                }
-                WebView.setWebContentsDebuggingEnabled(true)
-            }
-        }
-
-        startKoin {
+        val koin = startKoin {
             androidContext(this@JellyfinApplication)
             fragmentFactory()
 
@@ -43,6 +30,25 @@ class JellyfinApplication : Application() {
                 apiModule,
                 databaseModule,
             )
+        }.koin
+
+        if (BuildConfig.DEBUG) {
+            val clearCacheOnStartup = koin.get<AppPreferences>().clearCacheOnStartup
+            if (clearCacheOnStartup) {
+                for (directory in externalCacheDirs + cacheDir) {
+                    directory?.listFiles()?.forEach { it.deleteRecursively() }
+                }
+            }
+
+            if (isWebViewSupported()) {
+                if (clearCacheOnStartup) {
+                    WebView(this).apply {
+                        clearCache(true)
+                        destroy()
+                    }
+                }
+                WebView.setWebContentsDebuggingEnabled(true)
+            }
         }
     }
 }

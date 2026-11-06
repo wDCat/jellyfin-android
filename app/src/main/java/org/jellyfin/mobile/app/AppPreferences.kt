@@ -50,6 +50,12 @@ class AppPreferences(context: Context) {
         }
     }
 
+    val endProcessOnExit: Boolean
+        get() = sharedPreferences.getBoolean(Constants.PREF_END_PROCESS_ON_EXIT, true)
+
+    val clearCacheOnStartup: Boolean
+        get() = sharedPreferences.getBoolean(Constants.PREF_CLEAR_CACHE_ON_STARTUP, true)
+
     val customHostsEnabled: Boolean
         get() = sharedPreferences.getBoolean(Constants.PREF_CUSTOM_HOSTS_ENABLED, false)
 

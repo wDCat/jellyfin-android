@@ -31,6 +31,7 @@ import de.Maxr1998.modernpreferences.helpers.singleChoice
 import de.Maxr1998.modernpreferences.preferences.CheckBoxPreference
 import de.Maxr1998.modernpreferences.preferences.SeekBarPreference
 import de.Maxr1998.modernpreferences.preferences.choice.SelectionItem
+import org.jellyfin.mobile.BuildConfig
 import org.jellyfin.mobile.R
 import org.jellyfin.mobile.app.AppPreferences
 import org.jellyfin.mobile.app.StorageManager
@@ -424,6 +425,21 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
                 false
             }
         }
+        if (BuildConfig.DEBUG) {
+            categoryHeader(PREF_CATEGORY_DEVELOPER) {
+                titleRes = R.string.pref_category_developer
+            }
+            checkBox(Constants.PREF_END_PROCESS_ON_EXIT) {
+                titleRes = R.string.pref_end_process_on_exit_title
+                summaryRes = R.string.pref_end_process_on_exit_summary
+                defaultValue = true
+            }
+            checkBox(Constants.PREF_CLEAR_CACHE_ON_STARTUP) {
+                titleRes = R.string.pref_clear_cache_on_startup_title
+                summaryRes = R.string.pref_clear_cache_on_startup_summary
+                defaultValue = true
+            }
+        }
     }
 
     @Suppress("MagicNumber")
@@ -497,5 +513,6 @@ class SettingsFragment : Fragment(), BackPressInterceptor {
         const val PREF_CATEGORY_MUSIC_PLAYER = "pref_category_music"
         const val PREF_CATEGORY_VIDEO_PLAYER = "pref_category_video"
         const val PREF_CATEGORY_DOWNLOADS = "pref_category_downloads"
+        const val PREF_CATEGORY_DEVELOPER = "pref_category_developer"
     }
 }
