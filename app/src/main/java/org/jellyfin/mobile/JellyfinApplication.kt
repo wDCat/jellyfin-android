@@ -21,8 +21,15 @@ class JellyfinApplication : Application() {
         Timber.plant(JellyTree())
 
         if (BuildConfig.DEBUG) {
-            // Enable WebView debugging
+            for (directory in externalCacheDirs + cacheDir) {
+                directory?.listFiles()?.forEach { it.deleteRecursively() }
+            }
+
             if (isWebViewSupported()) {
+                WebView(this).apply {
+                    clearCache(true)
+                    destroy()
+                }
                 WebView.setWebContentsDebuggingEnabled(true)
             }
         }
