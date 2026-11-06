@@ -1,5 +1,6 @@
 package org.jellyfin.mobile.player.videoproxy
 
+import android.os.SystemClock
 import android.webkit.JavascriptInterface
 import kotlinx.coroutines.channels.Channel
 import org.jellyfin.mobile.app.AppPreferences
@@ -194,12 +195,29 @@ class VideoProxyBridge(
         videoProxyEventChannel.trySend(VideoProxyEvent.DisableSubtitleTrack(videoId))
     }
 
+    /** Clock handshake; elapsed time includes sleep and never uses the device wall clock. */
+    @JavascriptInterface
+    fun getPerformanceClockMs(): Long = SystemClock.elapsedRealtime()
+
     /**
      * Subscribe to native statistics while Jellyfin's playback info panel is visible.
      */
     @JavascriptInterface
-    fun setPlaybackInfoVisible(visible: Boolean, generation: String, videoId: String) {
-        videoProxyEventChannel.trySend(VideoProxyEvent.SetPlaybackInfoVisible(visible, generation, videoId))
+    fun setPlaybackInfoVisible(
+        visible: Boolean,
+        generation: String,
+        videoId: String,
+        scopeJson: String,
+        collectPerformance: Boolean,
+    ) {
+        val scope = if (scopeJson.isEmpty()) {
+            null
+        } else {
+            runCatching { JSONObject(scopeJson) }.getOrNull() ?: return
+        }
+        videoProxyEventChannel.trySend(
+            VideoProxyEvent.SetPlaybackInfoVisible(visible, generation, videoId, scope, collectPerformance),
+        )
     }
 
     /**
@@ -281,5 +299,11 @@ sealed class VideoProxyEvent {
     data class SetSubtitleTrack(val videoId: String, val trackIndex: Int) : VideoProxyEvent()
     data class DisableSubtitleTrack(val videoId: String) : VideoProxyEvent()
     data class ResolveAndSetSource(val videoId: String, val itemId: String, val mediaSourceId: String) : VideoProxyEvent()
-    data class SetPlaybackInfoVisible(val visible: Boolean, val generation: String, val videoId: String) : VideoProxyEvent()
+    data class SetPlaybackInfoVisible(
+        val visible: Boolean,
+        val generation: String,
+        val videoId: String,
+        val scope: JSONObject?,
+        val collectPerformance: Boolean,
+    ) : VideoProxyEvent()
 }

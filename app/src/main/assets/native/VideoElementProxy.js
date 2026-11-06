@@ -49,6 +49,7 @@
 
     let webPlaybackRequired = !!enhancementEnabled();
     let reloadPlayback = null;
+    let browserStatsLabels = null;
     let modeChanges = Promise.resolve();
     window.VideoProxy = Object.freeze({
         preparePlayback(item) {
@@ -59,6 +60,10 @@
         },
         setPlaybackReloader(reload) {
             reloadPlayback = reload;
+        },
+        setBrowserStatsLabels(provider) {
+            browserStatsLabels = provider;
+            document.dispatchEvent(new Event('videoproxychange'));
         }
     });
 
@@ -1497,6 +1502,16 @@
             return originalLoad();
         };
 
+        // A proxied element has no browser-rendered frames. Do not advertise its
+        // empty HTML counters as a measured zero-FPS native renderer.
+        const originalQuality = video.getVideoPlaybackQuality?.bind(video);
+        if (originalQuality) {
+            Object.defineProperty(video, 'getVideoPlaybackQuality', {
+                configurable: true,
+                get: () => state.isProxied ? undefined : originalQuality
+            });
+        }
+
         // Request fullscreen handling
         const originalRequestFullscreen = video.requestFullscreen?.bind(video);
         if (originalRequestFullscreen) {
@@ -1943,6 +1958,47 @@
         const traditional = /^zh-(tw|hk|mo|hant)(-|$)/.test(language);
         const label = (en, zh, hant = zh) => chinese ? (traditional ? hant : zh) : en;
         const id = 'org.jellyfin.android.exoplayer';
+        const performanceId = 'org.jellyfin.android.exoplayer.output';
+        let performancePublished = null;
+        let lastWarning = -Infinity;
+        let syncFrame = null;
+        const resetEvents = ['pause', 'playing', 'seeking', 'seeked', 'emptied', 'ended', 'error'];
+
+        function warnPerformance() {
+            const now = performance.now();
+            if (now - lastWarning < 30000) return;
+            lastWarning = now;
+            console.warn('[VideoProxy] Performance sample unavailable or rejected');
+        }
+
+        function reportPerformance(scope, sample) {
+            try {
+                const accepted = integration?.reportPlaybackPerformance?.(scope, performanceId, sample);
+                if (accepted === false) warnPerformance();
+                return accepted === true;
+            } catch (_) {
+                warnPerformance();
+                return false;
+            }
+        }
+
+        function captureClock() {
+            if (typeof integration?.reportPlaybackPerformance !== 'function'
+                || typeof bridge.getPerformanceClockMs !== 'function') return null;
+            try {
+                const started = performance.now();
+                const pageTime = Date.now();
+                const nativeTime = bridge.getPerformanceClockMs();
+                const duration = performance.now() - started;
+                if (!Number.isFinite(nativeTime) || duration > 1000) return null;
+                // Midpoint mapping: uncertainty is at most half the synchronous bridge round trip,
+                // plus clock quantization. Callback delivery time never replaces sample time.
+                return { nativeTime, pageTime: pageTime + duration / 2, pageMonotonic: started + duration / 2 };
+            } catch (_) {
+                warnPerformance();
+                return null;
+            }
+        }
         let panel = null;
         let section = null;
         let generation = 0;
@@ -1954,6 +2010,8 @@
         let observer = null;
         let suspended = false;
         let pendingSync = false;
+        const playerNameOverrides = new Map();
+        const hiddenBrowserStats = new Set();
 
         const style = document.createElement('style');
         style.textContent = `
@@ -1968,6 +2026,7 @@
                 overflow-wrap: anywhere;
             }
             .videoProxyPlaybackInfo .playerStats-stat-label { flex-shrink: 0; }
+            .playerStats .videoProxyBrowserStat { display: none !important; }
             @media (orientation: landscape) {
                 .videoProxyPlayerStats {
                     max-width: calc(100vw - var(--vp-safe-left, 0px) - var(--vp-safe-right, 0px) - 2em);
@@ -1998,23 +2057,80 @@
                 .find(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
         }
 
+        // The HTML plugin still owns playback controls. Change only its stats
+        // presentation, leaving player.name intact because Jellyfin uses it for selection.
+        function syncPlayerStats(active) {
+            const statsPanel = active ? visiblePanel() : null;
+            for (const [element, names] of playerNameOverrides) {
+                if (!statsPanel?.contains(element)) {
+                    if (element.textContent === names.display) element.textContent = names.original;
+                    playerNameOverrides.delete(element);
+                }
+            }
+            // Newer clients support reordered sections; older clients have flat rows.
+            const playbackSection = statsPanel?.querySelector('[data-id="builtin:playback"]') || statsPanel;
+            // Match the web client's current translations, not row positions or values.
+            // These HTML statistics do not describe the native decoder; its own section
+            // supplies resolution, Surface size and actual rendered/dropped frame counts.
+            const labels = new Set(browserStatsLabels?.() || []);
+            const nextHidden = new Set();
+            for (const row of playbackSection?.querySelectorAll('.playerStats-stat') || []) {
+                if (row.closest('.videoProxyPlaybackInfo, .playerStats-extensions')) continue;
+                const label = row.querySelector('.playerStats-stat-label')?.textContent.trim();
+                if (labels.has(label)) nextHidden.add(row);
+            }
+            for (const row of hiddenBrowserStats) {
+                if (!nextHidden.has(row)) {
+                    row.classList.remove('videoProxyBrowserStat');
+                    hiddenBrowserStats.delete(row);
+                }
+            }
+            for (const row of nextHidden) {
+                if (!hiddenBrowserStats.has(row)) row.classList.add('videoProxyBrowserStat');
+                hiddenBrowserStats.add(row);
+            }
+            if (!statsPanel) return;
+            for (const element of playbackSection.querySelectorAll('.playerStats-stat-value')) {
+                const original = element.textContent;
+                if (!/^Html Video Player(?=\s*\(|$)/.test(original)) continue;
+                const display = original.replace(/^Html Video Player/, 'Media3 ExoPlayer');
+                playerNameOverrides.set(element, { original, display });
+                element.textContent = display;
+            }
+        }
+
         function setSampling(scope, videoId) {
-            if (sampling && sampling.scope === scope && sampling.videoId === videoId) return;
+            const proxy = proxiedVideos.get(videoId);
+            const enabled = !!scope && !proxy?._error && !proxy?._ended;
+            if (!enabled && performancePublished) {
+                reportPerformance(performancePublished.scope, null);
+                performancePublished = null;
+            }
+            if (sampling && sampling.scope === scope && sampling.videoId === videoId && sampling.enabled === enabled) return;
             const nextGeneration = `${pageId}:${++generation}`;
-            sampling = { scope, videoId, generation: nextGeneration };
-            bridge.setPlaybackInfoVisible(true, nextGeneration, videoId || '');
+            sampling = {
+                scope, videoId, enabled, generation: nextGeneration,
+                clock: enabled ? captureClock() : null, lastSample: -Infinity
+            };
+            bridge.setPlaybackInfoVisible(true, nextGeneration, videoId || '',
+                scope ? JSON.stringify(scope) : '', !!sampling.clock);
         }
 
         function stopSampling() {
             if (!sampling) return;
             sampling = null;
-            bridge.setPlaybackInfoVisible(false, '', '');
+            bridge.setPlaybackInfoVisible(false, '', '', '', false);
         }
 
         function clearPublished() {
-            if (!published) return;
-            integration.setPlaybackInfoSection(published.scope, id, null);
+            try {
+                if (published) integration?.setPlaybackInfoSection?.(published.scope, id, null);
+            } catch (_) {
+                warnPerformance();
+            }
+            if (performancePublished) reportPerformance(performancePublished.scope, null);
             published = null;
+            performancePublished = null;
         }
 
         function currentProxy(state) {
@@ -2035,8 +2151,10 @@
             if (integration) {
                 const { scope, visible } = playbackInfoState;
                 const proxy = scope && currentProxy(integration.getState());
-                if (published && (published.scope !== scope || published.videoId !== proxy?.videoId)) clearPublished();
-                if (visible && proxy) {
+                syncPlayerStats(visible && !!proxy);
+                const owner = published || performancePublished;
+                if (owner && (owner.scope !== scope || owner.videoId !== proxy?.videoId)) clearPublished();
+                if (visible && proxy && !document.hidden) {
                     setSampling(scope, proxy.videoId);
                 } else {
                     stopSampling();
@@ -2047,6 +2165,7 @@
 
             const active = Array.from(proxiedVideos.values())
                 .some(state => state.isProxied && state.originalVideo.isConnected);
+            syncPlayerStats(active);
             const nextPanel = active && !document.hidden ? visiblePanel() : null;
             const content = nextPanel?.querySelector('.playerStats-content');
             if (!content || nextPanel !== panel) clearPanel();
@@ -2065,9 +2184,9 @@
         }
 
         function scheduleSync() {
-            if (pendingSync) return;
+            if (pendingSync || suspended) return;
             pendingSync = true;
-            requestAnimationFrame(syncPanel);
+            syncFrame = requestAnimationFrame(syncPanel);
         }
 
         function formatTime(ms) {
@@ -2097,7 +2216,8 @@
                 makeRow(label('State', '状态', '狀態'), info.playbackState),
                 makeRow(label('Video decoder', '视频解码器', '視訊解碼器'), info.videoDecoderName),
                 makeRow(label('Hardware decoding', '硬件解码', '硬體解碼'),
-                    info.isHardwareDecoding ? label('Yes', '是') : label('No', '否')),
+                    info.isHardwareDecoding == null ? label('Unknown', '未知')
+                        : info.isHardwareDecoding ? label('Yes', '是') : label('No', '否')),
                 makeRow(label('Video format', '视频格式', '視訊格式'), info.videoFormat),
                 makeRow(label('Resolution', '分辨率', '解析度'), info.resolution),
                 makeRow(label('Frame rate', '帧率', '幀率'), info.frameRate),
@@ -2128,13 +2248,35 @@
             panel.style.setProperty('--vp-safe-right', `${(data.safeArea?.right || 0) * scale}px`);
         }
 
-        window.VideoProxyCallback.onPlaybackInfo = data => {
+        function publishPerformance(batch, sample) {
+            if (!sample || !batch.clock) return;
+            const timestamp = sample.sampledAtMonotonicMs;
+            if (!Number.isFinite(timestamp) || timestamp <= batch.lastSample) return;
+            batch.lastSample = timestamp;
+            const clock = batch.clock;
+            const sampledAt = clock.pageTime + timestamp - clock.nativeTime;
+            const now = Date.now();
+            // A page clock adjustment needs a fresh handshake and a new native baseline.
+            if (Math.abs(now - (clock.pageTime + performance.now() - clock.pageMonotonic)) > 1000) {
+                stopSampling();
+                syncPanel();
+                return;
+            }
+            // Discard delayed delivery rather than stamping old counters with a fresh timestamp.
+            if (now - sampledAt > 2500 || sampledAt - now > 1000) return;
+            const { sampledAtMonotonicMs, frameProcessingTiming, ...metrics } = sample;
+            if (reportPerformance(batch.scope, { ...metrics, sampledAt })) performancePublished = batch;
+        }
+
+        function onPlaybackInfo(data) {
+            if (suspended || document.hidden) return;
             if (!integration) syncPanel();
             const batch = sampling;
             if (!batch || data.generation !== batch.generation) return;
             if (integration) {
                 const state = integration.getState();
-                if (!playbackInfoState.visible || playbackInfoState.scope !== batch.scope
+                if (data.scope?.uiId !== batch.scope.uiId || data.scope?.playbackId !== batch.scope.playbackId
+                    || !playbackInfoState.visible || playbackInfoState.scope !== batch.scope
                     || state.ui?.id !== batch.scope.uiId || state.playbackId !== batch.scope.playbackId
                     || currentProxy(state)?.videoId !== batch.videoId) return;
                 const nextPanel = visiblePanel();
@@ -2149,10 +2291,11 @@
                     clearPublished();
                     return;
                 }
-                if (integration.setPlaybackInfoSection(batch.scope, id, {
+                if (integration.setPlaybackInfoSection?.(batch.scope, id, {
                     name: 'ExoPlayer',
                     stats: playbackRows(info)
                 })) published = batch;
+                publishPerformance(batch, info.performance);
                 return;
             }
 
@@ -2165,7 +2308,15 @@
                     row(fragment, stat.label, stat.value);
                 }
             }
-            section.replaceChildren(fragment);
+            section?.replaceChildren(fragment);
+        }
+
+        window.VideoProxyCallback.onPlaybackInfo = data => {
+            try {
+                onPlaybackInfo(data);
+            } catch (_) {
+                warnPerformance();
+            }
         };
 
         function connect() {
@@ -2173,9 +2324,8 @@
             const api = window.JellyfinPlayerIntegration;
             const canPublish = typeof api?.setPlaybackInfoSection === 'function';
             const canSubscribe = typeof api?.subscribePlaybackInfo === 'function';
-            if (canPublish && canSubscribe) {
-                observer?.disconnect();
-                observer = null;
+            const canReport = typeof api?.reportPlaybackPerformance === 'function';
+            if (api?.version === 1 && typeof api.getState === 'function' && canSubscribe && (canPublish || canReport)) {
                 stopSampling();
                 clearPanel();
                 integration = api;
@@ -2183,12 +2333,15 @@
                     playbackInfoState = state;
                     syncPanel();
                 });
-            } else if (!observer) {
+            }
+            // Keep watching the name row even when statistics use the integration API.
+            if (!observer) {
                 observer = new MutationObserver(mutations => {
                     if (mutations.some(mutation => !section?.contains(mutation.target))) scheduleSync();
                 });
                 observer.observe(document.documentElement, {
                     childList: true,
+                    characterData: true,
                     subtree: true,
                     attributes: true,
                     attributeFilter: ['class', 'hidden']
@@ -2197,27 +2350,51 @@
             }
         }
 
-        document.addEventListener('videoproxychange', scheduleSync);
-        document.addEventListener('visibilitychange', () => {
-            if (!integration) syncPanel();
-        });
-        window.addEventListener('jellyfin-player-integration-ready', connect);
+        function visibilityChanged() {
+            // Stop immediately even when requestAnimationFrame is throttled in the background.
+            if (document.hidden) stopSampling();
+            syncPanel();
+        }
+
+        function playbackInterrupted(event) {
+            if (!sampling || event.target !== proxiedVideos.get(sampling.videoId)?.originalVideo) return;
+            stopSampling();
+            syncPanel();
+        }
+
+        function attachListeners() {
+            document.addEventListener('videoproxychange', scheduleSync);
+            document.addEventListener('visibilitychange', visibilityChanged);
+            resetEvents.forEach(event => document.addEventListener(event, playbackInterrupted, true));
+            window.addEventListener('jellyfin-player-integration-ready', connect);
+        }
+
         window.addEventListener('pageshow', () => {
             suspended = false;
+            attachListeners();
             connect();
         });
         window.addEventListener('pagehide', () => {
             suspended = true;
+            document.removeEventListener('videoproxychange', scheduleSync);
+            document.removeEventListener('visibilitychange', visibilityChanged);
+            resetEvents.forEach(event => document.removeEventListener(event, playbackInterrupted, true));
+            window.removeEventListener('jellyfin-player-integration-ready', connect);
+            if (syncFrame !== null) cancelAnimationFrame(syncFrame);
+            syncFrame = null;
+            pendingSync = false;
             unsubscribe?.();
             unsubscribe = null;
             observer?.disconnect();
             observer = null;
             clearPublished();
+            syncPlayerStats(false);
             playbackInfoState = null;
             integration = null;
             stopSampling();
             clearPanel();
         });
+        attachListeners();
         connect();
     })();
 

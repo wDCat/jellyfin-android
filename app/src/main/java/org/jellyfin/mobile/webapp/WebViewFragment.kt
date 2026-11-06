@@ -229,6 +229,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
     override fun onResume() {
         super.onResume()
+        videoOverlayManager?.resumePlaybackInfo()
         val webView = webViewBinding?.webView ?: return
         if (loadedHosts != null && loadedHosts != customHosts.entries) {
             loadWithHosts(webView)

@@ -13,9 +13,6 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
-import androidx.core.graphics.Insets
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.CaptionStyleCompat
@@ -108,7 +105,7 @@ class VideoOverlayManager(
     private val progressUpdateIntervalMs = 250L
 
     // Native statistics are sent only while Jellyfin's playback info panel is open.
-    private var playbackInfoSubscription: VideoProxyEvent.SetPlaybackInfoVisible? = null
+    private val playbackInfo = VideoProxyPlaybackInfoReporter(players) { callJavaScript("onPlaybackInfo", it) }
     private var statsUpdateCounter = 0
 
     // Bitrate indicator (top-right corner, shown during buffering)
@@ -170,10 +167,7 @@ class VideoOverlayManager(
             is VideoProxyEvent.SetSubtitleTrack -> setSubtitleTrack(event.videoId, event.trackIndex)
             is VideoProxyEvent.DisableSubtitleTrack -> disableSubtitleTrack(event.videoId)
             is VideoProxyEvent.ResolveAndSetSource -> resolveAndSetVideoSource(event.videoId, event.itemId, event.mediaSourceId)
-            is VideoProxyEvent.SetPlaybackInfoVisible -> {
-                playbackInfoSubscription = event.takeIf { it.visible }
-                if (event.visible) updatePlaybackInfo()
-            }
+            is VideoProxyEvent.SetPlaybackInfoVisible -> playbackInfo.subscribe(event, webView)
         }
     }
 
@@ -287,7 +281,7 @@ class VideoOverlayManager(
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
         }
 
-        updatePlaybackInfo()
+        playbackInfo.update(webView)
     }
 
     /**
@@ -765,13 +759,7 @@ class VideoOverlayManager(
                 statsUpdateCounter++
                 if (statsUpdateCounter >= 2) {
                     statsUpdateCounter = 0
-                    if (playbackInfoSubscription != null) {
-                        try {
-                            updatePlaybackInfo()
-                        } catch (e: Exception) {
-                            Timber.e(e, "Error updating playback info")
-                        }
-                    }
+                    playbackInfo.update(webView)
                     // Refresh bitrate indicator while buffering to show live bandwidth estimate
                     if (bitrateIndicatorVisible) {
                         try {
@@ -784,27 +772,6 @@ class VideoOverlayManager(
                 kotlinx.coroutines.delay(progressUpdateIntervalMs)
             }
         }
-    }
-
-    private fun updatePlaybackInfo() {
-        val subscription = playbackInfoSubscription ?: return
-        val view = webView ?: return
-        val sampledPlayers = if (subscription.videoId.isEmpty()) {
-            players.values
-        } else {
-            listOfNotNull(players[subscription.videoId])
-        }
-        val insets = ViewCompat.getRootWindowInsets(view)?.getInsets(WindowInsetsCompat.Type.displayCutout()) ?: Insets.NONE
-        val payload = JSONObject().apply {
-            put("generation", subscription.generation)
-            put("players", JSONArray(sampledPlayers.map { it.getDebugInfo().toPlaybackInfoJson() }))
-            put("viewportWidth", view.width)
-            put("safeArea", JSONObject().apply {
-                put("left", insets.left)
-                put("right", insets.right)
-            })
-        }
-        callJavaScript("onPlaybackInfo", payload)
     }
 
     /**
@@ -849,7 +816,7 @@ class VideoOverlayManager(
         overlayContainer = null
         subtitleContainer = null
         webView = null
-        playbackInfoSubscription = null
+        playbackInfo.release()
         bitrateIndicatorContainer?.visibility = View.GONE
         bitrateIndicatorView = null
         bitrateIndicatorContainer = null
@@ -860,7 +827,12 @@ class VideoOverlayManager(
      * Pause all active players (for Activity lifecycle).
      */
     fun pauseAll() {
+        playbackInfo.setForeground(false)
         players.values.forEach { it.pause() }
+    }
+
+    fun resumePlaybackInfo() {
+        playbackInfo.setForeground(true)
     }
 
     /**

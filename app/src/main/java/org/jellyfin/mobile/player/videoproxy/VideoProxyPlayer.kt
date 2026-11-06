@@ -97,7 +97,7 @@ data class VideoProxyDebugInfo(
     val duration: Long = 0,
     val playbackSpeed: Float = 1f,
     val volume: Float = 1f,
-    val isHardwareDecoding: Boolean = false,
+    val isHardwareDecoding: Boolean? = null,
     val surfaceSize: String = "N/A",
     val networkBandwidth: String = "N/A",
     val networkBandwidthBps: Long = 0,
@@ -137,6 +137,7 @@ class VideoProxyPlayer(
 
     private val volumeProcessor = VideoProxyVolumeProcessor()
     private var player: ExoPlayer? = null
+    private val performance = VideoProxyPerformance()
     private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
     private var isReleased = false
@@ -172,7 +173,11 @@ class VideoProxyPlayer(
 
         Timber.d("Initializing VideoProxyPlayer for $videoId")
 
-        val renderersFactory = VideoRenderersFactory(context, volumeProcessor).apply {
+        val renderersFactory = VideoRenderersFactory(
+            context,
+            volumeProcessor,
+            performance.frameProcessingTiming,
+        ).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -221,6 +226,7 @@ class VideoProxyPlayer(
                     initializationDurationMs: Long,
                 ) {
                     videoDecoderName = decoderName
+                    performance.decoderChanged(decoderName)
                 }
 
                 override fun onAudioDecoderInitialized(
@@ -245,6 +251,7 @@ class VideoProxyPlayer(
                     decoderName: String,
                 ) {
                     videoDecoderName = "N/A"
+                    performance.decoderChanged()
                 }
 
                 override fun onAudioDecoderReleased(
@@ -267,6 +274,7 @@ class VideoProxyPlayer(
     fun setSurfaceView(surface: SurfaceView?) {
         surfaceView?.keepScreenOn = false
         surfaceView = surface
+        performance.resetWindow()
         player?.setVideoSurfaceView(surface)
         updateKeepScreenOn()
     }
@@ -296,6 +304,7 @@ class VideoProxyPlayer(
         
         Timber.d("Setting source for $videoId: $url")
         currentSourceUrl = url
+        performance.decoderChanged()
         isSeeking = false
         postSeekSkipCount = 0
         
@@ -338,6 +347,7 @@ class VideoProxyPlayer(
      * Seek to a position.
      */
     fun seekTo(positionMs: Long) {
+        performance.resetWindow()
         isSeeking = true
         postSeekSkipCount = 0
         // Store seek target in currentTimeMs so JS shows the target position
@@ -509,12 +519,7 @@ class VideoProxyPlayer(
             "N/A"
         }
 
-        val isHw = videoDecoderName.contains("c2.", ignoreCase = true) ||
-            videoDecoderName.contains("OMX.", ignoreCase = true) ||
-            (!videoDecoderName.contains("ffmpeg", ignoreCase = true) &&
-                !videoDecoderName.contains("libvpx", ignoreCase = true) &&
-                !videoDecoderName.contains("libdav1d", ignoreCase = true) &&
-                videoDecoderName != "N/A")
+        val isHw = performance.hardwareDecoding
 
         val subtitleDebug = subtitleTrackGroups.mapIndexed { index, group ->
             val fmt = group.getTrackFormat(0)
@@ -583,15 +588,20 @@ class VideoProxyPlayer(
         }
     }
 
-    /**
-     * Release the player resources.
-     */
+    fun resetPerformanceSubscription(enabled: Boolean) = performance.resetSubscription(enabled)
+
+    fun samplePerformance() = player?.let {
+        performance.sample(it.videoDecoderCounters, it.isPlaying && !isSeeking && !isReleased)
+    }
+
+    /** Release the player resources. */
     fun release() {
         if (isReleased) return
         
         Timber.d("Releasing VideoProxyPlayer for $videoId")
         
         isReleased = true
+        performance.decoderChanged()
         updateKeepScreenOn()
         player?.run {
             removeListener(this@VideoProxyPlayer)
@@ -658,6 +668,7 @@ class VideoProxyPlayer(
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+        performance.resetWindow()
         Timber.d("Is playing changed for $videoId: $isPlaying")
         // Buffering/suppression does not change HTMLMediaElement.paused.
         _currentState = _currentState.copy(paused = _currentState.ended || player?.playWhenReady != true)
@@ -665,6 +676,7 @@ class VideoProxyPlayer(
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        performance.resetWindow()
         _currentState = _currentState.copy(paused = _currentState.ended || !playWhenReady)
         notifyStateChanged()
     }
@@ -674,6 +686,7 @@ class VideoProxyPlayer(
         newPosition: Player.PositionInfo,
         reason: Int,
     ) {
+        performance.resetWindow()
         if (reason == Player.DISCONTINUITY_REASON_SEEK && isSeeking) {
             // For in-buffer seeks the player stays in STATE_READY and
             // onPlaybackStateChanged(STATE_READY) will NOT re-fire, so isSeeking

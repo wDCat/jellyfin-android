@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.audio.AudioOffloadSupport
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
@@ -21,7 +22,21 @@ import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegVideoRenderer
 class VideoRenderersFactory(
     context: Context,
     private val audioProcessor: AudioProcessor? = null,
+    private val frameProcessingTiming: VideoFrameProcessingTiming? = null,
 ) : DefaultRenderersFactory(context) {
+    override fun getCodecAdapterFactory(): MediaCodecAdapter.Factory {
+        val factory = super.getCodecAdapterFactory()
+        val timing = frameProcessingTiming ?: return factory
+        return MediaCodecAdapter.Factory { configuration ->
+            val adapter = factory.createAdapter(configuration)
+            if (MimeTypes.isVideo(configuration.format.sampleMimeType)) {
+                FrameProcessingCodecAdapter(adapter, timing)
+            } else {
+                adapter
+            }
+        }
+    }
+
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
