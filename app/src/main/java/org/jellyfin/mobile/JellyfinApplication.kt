@@ -8,6 +8,7 @@ import org.jellyfin.mobile.app.applicationModule
 import org.jellyfin.mobile.data.databaseModule
 import org.jellyfin.mobile.utils.JellyTree
 import org.jellyfin.mobile.utils.isWebViewSupported
+import org.jellyfin.mobile.utils.toast
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.fragment.koin.fragmentFactory
 import org.koin.core.context.startKoin
@@ -15,6 +16,8 @@ import timber.log.Timber
 
 @Suppress("unused")
 class JellyfinApplication : Application() {
+    private var startupCacheToastPending = false
+
     override fun onCreate() {
         super.onCreate()
 
@@ -49,6 +52,15 @@ class JellyfinApplication : Application() {
                 }
                 WebView.setWebContentsDebuggingEnabled(true)
             }
+
+            startupCacheToastPending = clearCacheOnStartup
+        }
+    }
+
+    internal fun showStartupCacheToast() {
+        if (startupCacheToastPending) {
+            startupCacheToastPending = false
+            toast(R.string.toast_startup_cache_cleared)
         }
     }
 }

@@ -176,6 +176,13 @@ class MainActivity : AppCompatActivity() {
         orientationListener.enable()
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        if (BuildConfig.DEBUG) {
+            (application as JellyfinApplication).showStartupCacheToast()
+        }
+    }
+
     private fun handleServerState(state: ServerState) {
         with(supportFragmentManager) {
             val currentFragment = findFragmentById(R.id.fragment_container)

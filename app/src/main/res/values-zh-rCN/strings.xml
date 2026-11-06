@@ -191,4 +191,5 @@
     <string name="pref_end_process_on_exit_summary">按返回键退出应用时结束应用进程。</string>
     <string name="pref_clear_cache_on_startup_title">冷启动时清理缓存</string>
     <string name="pref_clear_cache_on_startup_summary">应用进程启动时清理应用和 WebView 缓存。</string>
+    <string name="toast_startup_cache_cleared">缓存已清理</string>
 </resources>

@@ -218,4 +218,5 @@
     <string name="pref_end_process_on_exit_summary">Stop the app process when pressing Back to exit.</string>
     <string name="pref_clear_cache_on_startup_title">Clear cache on cold start</string>
     <string name="pref_clear_cache_on_startup_summary">Clear app and WebView caches when the app process starts.</string>
+    <string name="toast_startup_cache_cleared">Cache cleared</string>
 </resources>
