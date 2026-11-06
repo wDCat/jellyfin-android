@@ -3,7 +3,7 @@
     const scripts = [
         '/native/nativeshell.js',
         '/native/EventEmitter.js',
-        mainScript.src.concat('?deferred=true&ts=', Date.now())
+        mainScript.src.concat('?deferred=true')
     ];
 
     // Give the video element a safe content box so native proxy bounds also stay below the status bar.
