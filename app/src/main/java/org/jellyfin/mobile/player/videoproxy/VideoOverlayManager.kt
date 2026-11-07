@@ -12,7 +12,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.CaptionStyleCompat
@@ -109,9 +108,7 @@ class VideoOverlayManager(
     private var statsUpdateCounter = 0
 
     // Bitrate indicator (top-right corner, shown during buffering)
-    private var bitrateIndicatorView: TextView? = null
-    private var bitrateIndicatorContainer: View? = null
-    private var bitrateIndicatorVisible = false
+    private val bufferingVideos = mutableSetOf<String>()
 
     /**
      * Event channel for receiving events from JavaScript bridge.
@@ -265,6 +262,7 @@ class VideoOverlayManager(
         resolutionJobs.remove(videoId)?.cancel()
         fullscreenVideos.remove(videoId)
         players.remove(videoId)?.release()
+        if (bufferingVideos.remove(videoId)) refreshBitrateIndicator()
         if (players.isEmpty()) {
             volumeDialog?.dismiss()
             volumeDialog = null
@@ -624,6 +622,7 @@ class VideoOverlayManager(
 
     override fun onError(videoId: String, errorCode: Int, errorMessage: String) {
         callJavaScript("onError", videoId, errorCode, errorMessage)
+        updateBitrateIndicator(videoId, false)
     }
 
     override fun onTracksChanged(videoId: String, audioTracks: List<ProxyTrackInfo>, subtitleTracks: List<ProxyTrackInfo>) {
@@ -667,70 +666,21 @@ class VideoOverlayManager(
         webappFunctionChannel.call("window.VideoProxyCallback?.$method(...$jsonArguments)")
     }
 
-    /**
-     * Set the bitrate indicator TextView (for buffering bitrate display in top-right corner).
-     */
-    fun setBitrateIndicatorView(textView: TextView, container: View) {
-        bitrateIndicatorView = textView
-        bitrateIndicatorContainer = container
-    }
-
-    /**
-     * Update the bitrate indicator when buffering state changes.
-     * Shows estimated network bandwidth and video format bitrate in the top-right corner.
-     */
+    /** Update the web-rendered indicator so it inherits the web client's theme. */
     private fun updateBitrateIndicator(videoId: String, isBuffering: Boolean) {
-        val indicator = bitrateIndicatorView ?: return
-        val container = bitrateIndicatorContainer ?: return
-
-        if (isBuffering) {
-            bitrateIndicatorVisible = true
-            val player = players[videoId]
-            if (player != null) {
-                val bandwidthBps = player.getNetworkBandwidthEstimate()
-                val videoBitrateBps = player.getVideoFormatBitrate()
-                val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
-                val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
-                indicator.text = buildString {
-                    append(bandwidthStr)
-                    if (videoBitrateBps > 0) {
-                        append(" / ")
-                        append(videoBitrateStr)
-                    }
-                }
-            } else {
-                indicator.text = "..."
-            }
-            container.visibility = View.VISIBLE
-        } else {
-            bitrateIndicatorVisible = false
-            container.visibility = View.GONE
-        }
+        if (isBuffering) bufferingVideos.add(videoId) else bufferingVideos.remove(videoId)
+        refreshBitrateIndicator()
     }
 
-    /**
-     * Refresh the bitrate indicator with updated bandwidth estimate.
-     * Called periodically from the progress update loop while buffering.
-     */
     private fun refreshBitrateIndicator() {
-        val indicator = bitrateIndicatorView ?: return
-        // Find the actively buffering player
-        val activePlayer = players.values.firstOrNull { player ->
-            player.currentState.readyState == 2 // STATE_BUFFERING maps to readyState 2
-        } ?: players.values.firstOrNull { it.currentState.readyState > 0 }
-        ?: return
-
-        val bandwidthBps = activePlayer.getNetworkBandwidthEstimate()
-        val videoBitrateBps = activePlayer.getVideoFormatBitrate()
-        val bandwidthStr = if (bandwidthBps > 0) formatBitrateDisplay(bandwidthBps) else "..."
-        val videoBitrateStr = if (videoBitrateBps > 0) formatBitrateDisplay(videoBitrateBps) else "N/A"
-        indicator.text = buildString {
-            append(bandwidthStr)
-            if (videoBitrateBps > 0) {
-                append(" / ")
-                append(videoBitrateStr)
-            }
+        val videoId = bufferingVideos.firstOrNull { players.containsKey(it) }
+        val player = videoId?.let { players[it] }
+        if (player == null) {
+            callJavaScript("onBitrateIndicator", null, null)
+            return
         }
+        val text = formatBitrateDisplay(player.getDownloadSpeedBps())
+        callJavaScript("onBitrateIndicator", videoId, text)
     }
 
     /**
@@ -760,8 +710,8 @@ class VideoOverlayManager(
                 if (statsUpdateCounter >= 2) {
                     statsUpdateCounter = 0
                     playbackInfo.update(webView)
-                    // Refresh bitrate indicator while buffering to show live bandwidth estimate
-                    if (bitrateIndicatorVisible) {
+                    // Refresh bitrate indicator while buffering to show recent download speed
+                    if (bufferingVideos.isNotEmpty()) {
                         try {
                             refreshBitrateIndicator()
                         } catch (e: Exception) {
@@ -778,6 +728,7 @@ class VideoOverlayManager(
      * Clean up all resources.
      */
     fun release() {
+        callJavaScript("onBitrateIndicator", null, null)
         released = true
         appPreferences.unregisterListener(volumePreferenceListener)
         volumeDialog?.dismiss()
@@ -817,10 +768,7 @@ class VideoOverlayManager(
         subtitleContainer = null
         webView = null
         playbackInfo.release()
-        bitrateIndicatorContainer?.visibility = View.GONE
-        bitrateIndicatorView = null
-        bitrateIndicatorContainer = null
-        bitrateIndicatorVisible = false
+        bufferingVideos.clear()
     }
 
     /**

@@ -167,10 +167,6 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 mediaSourceFactory = mediaSourceFactory,
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, binding.videoSubtitleContainer, webView)
-                manager.setBitrateIndicatorView(
-                    binding.videoProxyBitrateIndicator,
-                    binding.videoProxyBitrateContainer,
-                )
 
                 // Forward events from bridge to manager
                 viewLifecycleOwner.lifecycleScope.launch {

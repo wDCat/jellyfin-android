@@ -1073,6 +1073,7 @@
         }
 
         releaseNativePlayer() {
+            if (bitrateChipVideoId === this.videoId) updateBitrateChip(null, null);
             this.settlePlayPromises(new DOMException('Playback source changed', 'AbortError'));
             this.stopObserving();
             this._textTrackList._clearCueOverlay();
@@ -1664,10 +1665,130 @@
         subtree: true
     });
 
+    // Sample every silhouette at the same angles so CSS can smoothly morph them.
+    // The sequence follows the M3 loading indicator: soft burst, nine-sided cookie,
+    // pentagon, pill, sunny, four-sided cookie and oval.
+    function createLoadingShape(radius) {
+        const points = Array.from({ length: 120 }, (_, index) => {
+            const angle = index * 2 * Math.PI / 120;
+            const r = 42 * radius(angle);
+            return `${(50 + r * Math.sin(angle)).toFixed(2)}% ${(50 - r * Math.cos(angle)).toFixed(2)}%`;
+        });
+        return `polygon(${points.join(',')})`;
+    }
+
+    const pentagonRadius = angle => Math.cos(Math.PI / 5)
+        / Math.cos((Math.acos(Math.cos(5 * angle)) - Math.PI) / 5);
+    const bitrateLoadingShapes = [
+        angle => 0.82 + 0.18 * Math.cos(10 * angle),
+        angle => 0.9 + 0.1 * Math.cos(9 * angle),
+        // Average nearby samples to soften the pentagon's corners.
+        angle => (pentagonRadius(angle - 0.06) + 2 * pentagonRadius(angle) + pentagonRadius(angle + 0.06)) / 4,
+        angle => Math.pow(Math.pow(Math.abs(Math.cos(angle)), 3)
+            + Math.pow(Math.abs(Math.sin(angle)) / 0.64, 3), -1 / 3),
+        angle => 0.9 + 0.1 * Math.cos(8 * angle),
+        angle => 0.78 + 0.22 * Math.cos(4 * angle),
+        angle => 1 / Math.sqrt(Math.pow(Math.cos(angle - Math.PI / 4), 2)
+            + Math.pow(Math.sin(angle - Math.PI / 4) / 0.64, 2))
+    ].map(createLoadingShape);
+
+
+    function createBitrateLoadingIndicator() {
+        const indicator = document.createElement('span');
+        indicator.className = 'videoProxyBitrateLoadingIndicator';
+        indicator.setAttribute('aria-hidden', 'true');
+        indicator.style.cssText = `
+            display: block;
+            flex: 0 0 16px;
+            width: 16px;
+            height: 16px;
+            color: var(--md-sys-color-primary, currentColor);
+        `;
+        const shape = document.createElement('span');
+        shape.style.cssText = `
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: currentColor;
+            clip-path: ${bitrateLoadingShapes[0]};
+        `;
+        indicator.appendChild(shape);
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches && shape.animate) {
+            indicator.animate([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], {
+                duration: 4680, iterations: Infinity
+            });
+            shape.animate([...bitrateLoadingShapes, bitrateLoadingShapes[0]].map(clipPath => ({ clipPath })), {
+                duration: 4550, easing: 'cubic-bezier(0.2, 0, 0, 1)', iterations: Infinity
+            });
+            shape.animate([0, 90, 180, 270, 360].map(angle => ({ transform: `rotate(${angle}deg)` })), {
+                duration: 2600, easing: 'cubic-bezier(0.2, 0, 0, 1)', iterations: Infinity
+            });
+        }
+        return indicator;
+    }
+
+    // Render in the WebView to inherit MD3 tokens and live theme changes directly.
+    let bitrateChip = null;
+    let bitrateChipVideoId = null;
+    function updateBitrateChip(videoId, text) {
+        const state = proxiedVideos.get(videoId);
+        if (text == null || !state?.isProxied || !state.originalVideo.isConnected) {
+            bitrateChip?.remove();
+            bitrateChip = null;
+            bitrateChipVideoId = null;
+            return;
+        }
+        if (!bitrateChip) {
+            bitrateChip = document.createElement('div');
+            bitrateChip.className = 'videoProxyBitrateChip';
+            // This is passive status text, with no button semantics or live announcements.
+            bitrateChip.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                position: fixed;
+                top: 48px;
+                right: 12px;
+                z-index: 2147483647;
+                box-sizing: border-box;
+                width: 112px;
+                max-width: calc(100vw - 24px);
+                padding: 6px 10px;
+                border: 0;
+                border-radius: 12px;
+                background: var(--md-sys-color-surface-container-high, #2b2930);
+                color: var(--md-sys-color-on-surface, #e6e0e9);
+                font-family: sans-serif;
+                font-size: 12px;
+                font-weight: 400;
+                line-height: normal;
+                letter-spacing: normal;
+                -webkit-text-size-adjust: none;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: clip;
+                pointer-events: none;
+                user-select: none;
+            `;
+            const label = document.createElement('span');
+            label.className = 'videoProxyBitrateText';
+            label.style.cssText = 'flex: 1; min-width: 0; overflow: hidden; text-overflow: clip;';
+            bitrateChip.append(createBitrateLoadingIndicator(), label);
+        }
+        bitrateChipVideoId = videoId;
+        const label = bitrateChip.querySelector('.videoProxyBitrateText');
+        if (label.textContent !== text) label.textContent = text;
+        const parent = document.fullscreenElement || document.body;
+        if (parent && bitrateChip.parentNode !== parent) parent.appendChild(bitrateChip);
+    }
+
     /**
      * API for native code to call back into JavaScript
      */
     window.VideoProxyCallback = {
+        onBitrateIndicator: updateBitrateChip,
+
         /**
          * Called when native player state changes
          */

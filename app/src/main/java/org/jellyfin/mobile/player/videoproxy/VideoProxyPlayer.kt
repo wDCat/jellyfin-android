@@ -568,21 +568,6 @@ class VideoProxyPlayer(
         )
     }
 
-    /**
-     * Get the current network bandwidth estimate in bits per second.
-     * Uses ExoPlayer's default bandwidth meter.
-     */
-    fun getNetworkBandwidthEstimate(): Long {
-        return DefaultBandwidthMeter.getSingletonInstance(context).bitrateEstimate
-    }
-
-    /**
-     * Get the current video format bitrate in bits per second, or 0 if unavailable.
-     */
-    fun getVideoFormatBitrate(): Long {
-        return player?.videoFormat?.bitrate?.toLong()?.takeIf { it > 0 } ?: 0L
-    }
-
     /** Actual network bytes received during the last second, expressed in bits per second. */
     fun getDownloadSpeedBps(): Long = downloadSpeedMeter.getDownloadSpeedBps()
 
