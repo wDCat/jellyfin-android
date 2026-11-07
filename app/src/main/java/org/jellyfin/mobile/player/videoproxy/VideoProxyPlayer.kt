@@ -138,6 +138,7 @@ class VideoProxyPlayer(
     private val volumeProcessor = VideoProxyVolumeProcessor()
     private var player: ExoPlayer? = null
     private val performance = VideoProxyPerformance()
+    private val downloadSpeedMeter = VideoProxyDownloadSpeedMeter(DefaultBandwidthMeter.getSingletonInstance(context))
     private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
     private var isReleased = false
@@ -204,6 +205,7 @@ class VideoProxyPlayer(
 
         player = ExoPlayer.Builder(context, renderersFactory).apply {
             setMediaSourceFactory(mediaSourceFactory)
+            setBandwidthMeter(downloadSpeedMeter)
             setUsePlatformDiagnostics(false)
         }.build().apply {
             addListener(this@VideoProxyPlayer)
@@ -300,6 +302,7 @@ class VideoProxyPlayer(
      * Load and prepare a video source.
      */
     fun setSource(url: String) {
+        downloadSpeedMeter.reset()
         val player = player ?: return
         
         Timber.d("Setting source for $videoId: $url")
@@ -579,6 +582,9 @@ class VideoProxyPlayer(
     fun getVideoFormatBitrate(): Long {
         return player?.videoFormat?.bitrate?.toLong()?.takeIf { it > 0 } ?: 0L
     }
+
+    /** Actual network bytes received during the last second, expressed in bits per second. */
+    fun getDownloadSpeedBps(): Long = downloadSpeedMeter.getDownloadSpeedBps()
 
     private fun formatBitrate(bps: Long): String {
         return when {
