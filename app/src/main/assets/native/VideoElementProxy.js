@@ -134,6 +134,7 @@
     let videoIdCounter = 0;
     const pageId = Date.now().toString(36) + Math.random().toString(36).slice(2);
     const playbackContexts = new Map();
+    const failedNativeSources = new Set();
     const transparentAncestors = new WeakMap();
 
     // --- Playback context capture via fetch interception ---
@@ -199,6 +200,8 @@
     }
 
     const normalizeId = value => String(value || '').replace(/-/g, '').toLowerCase();
+    const playbackContextKey = context => context?.itemId
+        ? normalizeId(context.itemId) + ':' + normalizeId(context.mediaSourceId) : null;
 
     function capturePlaybackContext(itemId, data, url, body) {
         let requestedSource = new URL(url, document.baseURI).searchParams.get('MediaSourceId');
@@ -254,16 +257,24 @@
     }
 
     function preparePlaybackRequest(url, body) {
-        if (webPlaybackRequired || !bridge.isEnabled() || !codecCapabilities.h264High10Supported ||
-            typeof body !== 'string' || !/\/Items\/[^/]+\/PlaybackInfo/i.test(url)) return body;
-        // The browser profile rejects High 10 and MKV. Advertise the native
-        // decoder before negotiation so the server returns the original file.
+        if (typeof body !== 'string' || !/\/Items\/[^/]+\/PlaybackInfo/i.test(url)) return body;
         const itemId = String(url).match(/\/Items\/([^/]+)\/PlaybackInfo/i)?.[1];
-        if (normalizeId(itemId) !== normalizeId(playbackItem?.Id)) return body;
-        const streams = playbackItem?.MediaStreams || playbackItem?.MediaSources?.flatMap(source => source.MediaStreams || []) || [];
-        if (!streams.some(stream => stream.Type === 'Video' && isHigh10Stream(stream))) return body;
         try {
             const request = JSON.parse(body);
+            const sourceId = request.MediaSourceId || new URL(url, document.baseURI).searchParams.get('MediaSourceId') ||
+                (normalizeId(currentPlaybackContext?.itemId) === normalizeId(itemId) ? currentPlaybackContext?.mediaSourceId : '');
+            if (failedNativeSources.has(playbackContextKey({ itemId, mediaSourceId: sourceId }))) {
+                // Neither the platform decoder nor the browser may accept the original audio.
+                // Request fresh encoded streams instead of copying a failed track into HLS.
+                return JSON.stringify({ ...request, EnableDirectPlay: false, EnableDirectStream: false,
+                    AllowVideoStreamCopy: false, AllowAudioStreamCopy: false });
+            }
+            if (webPlaybackRequired || !bridge.isEnabled() || !codecCapabilities.h264High10Supported ||
+                normalizeId(itemId) !== normalizeId(playbackItem?.Id)) return body;
+            // The browser profile rejects High 10 and MKV. Advertise the native
+            // decoder before negotiation so the server returns the original file.
+            const streams = playbackItem?.MediaStreams || playbackItem?.MediaSources?.flatMap(source => source.MediaStreams || []) || [];
+            if (!streams.some(stream => stream.Type === 'Video' && isHigh10Stream(stream))) return body;
             const profile = request.DeviceProfile;
             if (!profile) return body;
             profile.DirectPlayProfiles = [...(profile.DirectPlayProfiles || []), ...(codecCapabilities.h264DirectPlayProfiles || [])];
@@ -1110,7 +1121,9 @@
             this._ended = this._seeking = this._buffering = this._playing = false;
             this._seekCompletedAt = 0;
             this._error = null;
-            const nativePlaybackAllowed = !webPlaybackRequired && this._playbackContext?.nativeVideoSupported !== false;
+            // A web retry after a native decode failure must keep its transcoded source.
+            const nativePlaybackAllowed = !webPlaybackRequired && this._playbackContext?.nativeVideoSupported !== false &&
+                !failedNativeSources.has(playbackContextKey(this._playbackContext));
             const resolveBlob = nativePlaybackAllowed && value.startsWith('blob:') && this._playbackContext && bridge.isEnabled();
             const direct = nativePlaybackAllowed && value && !value.startsWith('blob:') && !value.startsWith('data:') && bridge.shouldProxyUrl(value);
             if (!resolveBlob && !direct) {
@@ -1872,6 +1885,14 @@
             const proxyState = proxiedVideos.get(videoId);
             if (!proxyState) return;
 
+            if (errorCode === 3 || errorCode === 4) {
+                const key = playbackContextKey(proxyState._playbackContext);
+                if (key) {
+                    failedNativeSources.add(key);
+                    while (failedNativeSources.size > 32) failedNativeSources.delete(failedNativeSources.values().next().value);
+                    console.log('[VideoProxy] Keeping web playback retries for failed native source');
+                }
+            }
             proxyState._error = Object.freeze({ code: errorCode, message: errorMessage });
             proxyState.settlePlayPromises(new DOMException(errorMessage, 'NotSupportedError'));
             proxyState._playing = false;

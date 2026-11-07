@@ -261,6 +261,8 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
             videoProxyEnabled = appPreferences.videoProxyEnabled,
         )
         settings.applyDefault()
+        // Native-to-web fallback finishes after the original play gesture has expired.
+        settings.mediaPlaybackRequiresUserGesture = false
         addJavascriptInterface(NativeInterface(requireContext()), "NativeInterface")
         addJavascriptInterface(nativePlayer, "NativePlayer")
         addJavascriptInterface(externalPlayer, "ExternalPlayer")
