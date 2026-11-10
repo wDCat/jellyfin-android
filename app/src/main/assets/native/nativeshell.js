@@ -32,7 +32,7 @@ for (const plugin of plugins) {
     };
 }
 
-const { deviceId, deviceName, appName, appVersion } = JSON.parse(window.NativeInterface.getDeviceInformation());
+const { deviceId, deviceName, appName, appVersion, webViewVersion } = JSON.parse(window.NativeInterface.getDeviceInformation());
 const codecCaps = JSON.parse(window.NativeInterface.getCodecCapabilities());
 
 window.NativeShell = {
@@ -133,3 +133,31 @@ window.NativeShell.AppHost = {
         window.NativeInterface.exitApp();
     }
 };
+
+// The home footer is created again when navigating back to the home page.
+(() => {
+    const clientInfoText = `${appName} ${appVersion} | WebView ${webViewVersion}`;
+
+    function fillClientInfo(root) {
+        if (root.nodeType !== Node.ELEMENT_NODE) return;
+
+        if (root.id === 'clientInfo' && root.textContent !== clientInfoText) {
+            root.textContent = clientInfoText;
+        }
+        for (const element of root.querySelectorAll('#clientInfo')) {
+            if (element.textContent !== clientInfoText) {
+                element.textContent = clientInfoText;
+            }
+        }
+    }
+
+    fillClientInfo(document.body);
+    const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                fillClientInfo(node);
+            }
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+})();
