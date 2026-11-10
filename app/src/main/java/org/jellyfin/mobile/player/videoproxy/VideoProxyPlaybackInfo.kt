@@ -32,7 +32,7 @@ fun VideoProxyDebugInfo.toPlaybackInfoJson(): JSONObject = JSONObject().apply {
     put("volume", volume)
     put("isHardwareDecoding", isHardwareDecoding ?: JSONObject.NULL)
     put("surfaceSize", surfaceSize)
-    put("networkBandwidth", networkBandwidth)
+    put("downloadSpeed", downloadSpeed)
     put("textTrackEnabled", textTrackEnabled)
     val tracks = subtitleTracks.map { track ->
         JSONObject().apply {

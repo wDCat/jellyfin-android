@@ -99,8 +99,7 @@ data class VideoProxyDebugInfo(
     val volume: Float = 1f,
     val isHardwareDecoding: Boolean? = null,
     val surfaceSize: String = "N/A",
-    val networkBandwidth: String = "N/A",
-    val networkBandwidthBps: Long = 0,
+    val downloadSpeed: String = "N/A",
     val subtitleTracks: List<SubtitleDebugInfo> = emptyList(),
     val textTrackEnabled: Boolean = false,
 )
@@ -514,14 +513,6 @@ class VideoProxyPlayer(
 
         val surfaceSizeStr = surfaceView?.let { "${it.width}x${it.height}" } ?: "N/A"
 
-        val bandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(context)
-        val bandwidthEstimateBps = bandwidthMeter.bitrateEstimate
-        val bandwidthStr = if (bandwidthEstimateBps > 0) {
-            formatBitrate(bandwidthEstimateBps)
-        } else {
-            "N/A"
-        }
-
         val isHw = performance.hardwareDecoding
 
         val subtitleDebug = subtitleTrackGroups.mapIndexed { index, group ->
@@ -561,8 +552,7 @@ class VideoProxyPlayer(
             volume = player.volume * volumeProcessor.gain,
             isHardwareDecoding = isHw,
             surfaceSize = surfaceSizeStr,
-            networkBandwidth = bandwidthStr,
-            networkBandwidthBps = bandwidthEstimateBps,
+            downloadSpeed = formatBitrate(getDownloadSpeedBps()),
             subtitleTracks = subtitleDebug,
             textTrackEnabled = textEnabled,
         )

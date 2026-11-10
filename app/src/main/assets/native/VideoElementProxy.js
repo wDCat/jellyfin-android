@@ -2384,7 +2384,7 @@
                     info.textTrackEnabled ? label('Enabled', '已启用', '已啟用') : label('Disabled', '未启用', '未啟用')),
                 ...info.subtitleTracks.map(track => makeRow(label('Subtitle track', '字幕轨道', '字幕軌道'),
                     `${track.isSelected ? '▸ ' : ''}[${track.language || '?'}] ${track.label || track.index} (${track.codec})`)),
-                makeRow(label('Network bandwidth', '网络带宽', '網路頻寬'), info.networkBandwidth),
+                makeRow(label('Network speed', '网络速率', '網路速率'), info.downloadSpeed),
                 makeRow(label('Position / duration', '进度 / 时长', '進度 / 時長'),
                     `${formatTime(info.currentPosition)} / ${formatTime(info.duration)}`),
                 makeRow(label('Buffered to', '已缓冲至', '已緩衝至'), formatTime(info.bufferPosition)),
