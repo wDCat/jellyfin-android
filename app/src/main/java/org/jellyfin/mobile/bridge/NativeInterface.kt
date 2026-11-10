@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.session.PlaybackState
 import android.webkit.JavascriptInterface
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewCompat
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -48,6 +49,7 @@ class NativeInterface(private val context: Context) : KoinComponent {
     private val activityEventHandler: ActivityEventHandler = get()
     private val remoteVolumeProvider: RemoteVolumeProvider by inject()
     private val deviceProfileBuilder: DeviceProfileBuilder by inject()
+    private val webViewVersion = WebViewCompat.getCurrentWebViewPackage(context)?.versionName ?: "Unknown"
 
     @SuppressLint("HardwareIds")
     @JavascriptInterface
@@ -65,6 +67,7 @@ class NativeInterface(private val context: Context) : KoinComponent {
             put("deviceName", name)
             put("appName", clientInfo.name)
             put("appVersion", clientInfo.version)
+            put("webViewVersion", webViewVersion)
         }.toString()
     } catch (e: Exception) {
         null
