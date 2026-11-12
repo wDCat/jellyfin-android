@@ -30,6 +30,7 @@ fun Project.getVersionName(fallback: String = "0.0.0-dev.1"): String {
  * 0.7.0         ->    70099
  * 99.99.99      -> 99999999
  * 2.0.0-rc.3    ->  2000003
+ * 2.7.3-dcat-19 ->  2070319
  * 2.0.0         ->  2000099
  * 99.99.99-rc.1 -> 99999901
  */
@@ -53,6 +54,7 @@ fun getVersionCode(versionName: String): Int {
 
     // Parse pre release part (ignore type, only get the number)
     val buildVersion = versionPreRelease
+        ?.removePrefix("dcat-")
         ?.substringAfter('.')
         ?.let(String::toIntOrNull)
 

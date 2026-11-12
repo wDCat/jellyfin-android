@@ -80,15 +80,15 @@ which can still be found [in the archives](https://github.com/jellyfin-archive/j
 ### Fork release versioning
 
 GitHub Actions runs only when a version tag (`v*`) is pushed.
-Fork release tags use `v<upstream-base-version>-<release-number>`, for example `v2.7.3-1`.
-The release number starts at 1 and increases for each new tag based on the same upstream version;
-it starts over at 1 when the upstream base version changes.
+Fork release tags use `v<upstream-base-version>-dcat-<release-number>`, for example `v2.7.3-dcat-19`.
+Continue the existing release sequence for the same upstream base, including tags created before
+the `dcat` prefix was added. Start at 1 for a new upstream base.
 
 CI passes the tag as `JELLYFIN_VERSION`, so the APK filename and embedded `versionName`
 use the same version (without the leading `v` in `versionName`).
 Local builds use `jellyfin.version` in `gradle.properties`; update it when preparing a release.
-For `v2.7.3-1`, the embedded version is `2.7.3-1`, `versionCode` is `2070301`,
-and a debug APK is named `jellyfin-android-v2.7.3-1-libre-debug.apk`.
+For `v2.7.3-dcat-19`, the embedded version is `2.7.3-dcat-19`, `versionCode` is `2070319`,
+and a debug APK is named `jellyfin-android-v2.7.3-dcat-19-libre-debug.apk`.
 
 ### Deploy to device/emulator
 
