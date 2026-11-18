@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
 /**
  * Manages video overlay views and their corresponding ExoPlayer instances.
  * This class handles the creation, positioning, and lifecycle of video overlays
- * that render on top of the WebView.
+ * that render underneath the WebView.
  */
 @UnstableApi
 @Suppress("LongParameterList")
@@ -55,6 +55,7 @@ class VideoOverlayManager(
     private val apiClient: ApiClient,
     private val deviceProfileBuilder: DeviceProfileBuilder,
     private val mediaSourceFactory: MediaSource.Factory,
+    private val onOverlayVisibilityChanged: (Boolean) -> Unit,
 ) : VideoProxyPlayerCallback {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -73,6 +74,7 @@ class VideoOverlayManager(
     private var subtitleContainer: FrameLayout? = null
     private var webView: WebView? = null
     private val videoContainers = ConcurrentHashMap<String, FrameLayout>()
+    private var hasVisibleVideoOverlay = false
     private val layoutChangeListener = View.OnLayoutChangeListener {
         _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
         val sizeChanged = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
@@ -118,7 +120,7 @@ class VideoOverlayManager(
     /**
      * Initialize the manager with the overlay container, subtitle container, and WebView.
      * @param container FrameLayout below the WebView for SurfaceViews (hole-punching)
-     * @param subtitleContainer FrameLayout above the WebView for SubtitleViews
+     * @param subtitleContainer FrameLayout below the WebView and above the video for SubtitleViews
      * @param webView The WebView instance
      */
     fun initialize(container: FrameLayout, subtitleContainer: FrameLayout, webView: WebView) {
@@ -250,6 +252,7 @@ class VideoOverlayManager(
             applyBoundsToSubtitleView(subtitleView, bounds)
         }
 
+        updateOverlayCompositing()
         Timber.d("SurfaceView and SubtitleView created for $videoId")
     }
 
@@ -279,6 +282,7 @@ class VideoOverlayManager(
             (subtitleView.parent as? ViewGroup)?.removeView(subtitleView)
         }
 
+        updateOverlayCompositing()
         playbackInfo.update(webView)
     }
 
@@ -344,12 +348,8 @@ class VideoOverlayManager(
      */
     private fun playVideo(videoId: String) {
         Timber.d("Playing video $videoId")
+        setOverlayVisibility(videoId, View.VISIBLE)
         players[videoId]?.play()
-
-        // Show the surface view and subtitle view (already on main thread)
-        videoContainers[videoId]?.visibility = View.VISIBLE
-        surfaceViews[videoId]?.visibility = View.VISIBLE
-        subtitleViews[videoId]?.visibility = View.VISIBLE
     }
 
     /**
@@ -420,7 +420,13 @@ class VideoOverlayManager(
         view.layoutParams = params
     }
 
-    private fun createVideoContainer(surfaceView: SurfaceView) = FrameLayout(context).apply {
+    private fun createVideoContainer(surfaceView: SurfaceView): FrameLayout = object : FrameLayout(context) {
+        override fun requestTransparentRegion(child: View?) {
+            // The Activity supplies alpha while this video is visible. Forwarding the
+            // SurfaceView's hint would keep the window translucent after it is removed.
+            if (child !== surfaceView) super.requestTransparentRegion(child)
+        }
+    }.apply {
         layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -448,10 +454,21 @@ class VideoOverlayManager(
     private fun setVideoVisibility(videoId: String, visible: Boolean) {
         Timber.d("Setting visibility for $videoId: $visible")
         videoVisibility[videoId] = visible
-        val viewVisibility = if (visible) View.VISIBLE else View.GONE
-        videoContainers[videoId]?.visibility = viewVisibility
-        surfaceViews[videoId]?.visibility = viewVisibility
-        subtitleViews[videoId]?.visibility = viewVisibility
+        setOverlayVisibility(videoId, if (visible) View.VISIBLE else View.GONE)
+    }
+
+    private fun setOverlayVisibility(videoId: String, visibility: Int) {
+        videoContainers[videoId]?.visibility = visibility
+        surfaceViews[videoId]?.visibility = visibility
+        subtitleViews[videoId]?.visibility = visibility
+        updateOverlayCompositing()
+    }
+
+    private fun updateOverlayCompositing() {
+        val visible = videoContainers.values.any { it.visibility == View.VISIBLE }
+        if (visible == hasVisibleVideoOverlay) return
+        hasVisibleVideoOverlay = visible
+        onOverlayVisibilityChanged(visible)
     }
 
     /**

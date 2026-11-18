@@ -1,6 +1,8 @@
 package org.jellyfin.mobile.webapp
 
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
@@ -81,6 +83,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     private lateinit var externalPlayer: ExternalPlayer
     private val mediaSegments: MediaSegments by inject()
     private var videoOverlayManager: VideoOverlayManager? = null
+    private var previousWindowFormat: Int? = null
 
     lateinit var server: ServerEntity
         private set
@@ -150,11 +153,8 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
         // Initialize video overlay manager if video proxy is enabled
         if (appPreferences.videoProxyEnabled) {
-            // Enable per-pixel alpha on the window surface so that semi-transparent
-            // subtitle backgrounds composite correctly over the SurfaceView video.
-            // Without this the window surface is OPAQUE and alpha is discarded,
-            // making semi-transparent backgrounds appear solid black.
-            activity?.window?.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+            previousWindowFormat = activity?.window?.attributes?.format
+            updateVideoOverlayCompositing(webView, false)
 
             videoOverlayManager = VideoOverlayManager(
                 context = requireContext(),
@@ -165,6 +165,7 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                 apiClient = apiClient,
                 deviceProfileBuilder = deviceProfileBuilder,
                 mediaSourceFactory = mediaSourceFactory,
+                onOverlayVisibilityChanged = { visible -> updateVideoOverlayCompositing(webView, visible) },
             ).also { manager ->
                 manager.initialize(binding.videoOverlayContainer, binding.videoSubtitleContainer, webView)
 
@@ -241,7 +242,18 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         super.onDestroyView()
         videoOverlayManager?.release()
         videoOverlayManager = null
+        previousWindowFormat?.let { format -> activity?.window?.setFormat(format) }
+        previousWindowFormat = null
         webViewBinding = null
+    }
+
+    private fun updateVideoOverlayCompositing(webView: WebView, visible: Boolean) {
+        // Keep per-pixel alpha while a native video (including a paused frame) is visible,
+        // so the window composites translucent subtitle backgrounds over its SurfaceView.
+        val format = if (visible) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE
+        activity?.window?.setFormat(format)
+        val background = if (visible) Color.TRANSPARENT else webView.context.getColor(R.color.theme_background)
+        webView.setBackgroundColor(background)
     }
 
     private fun WebView.initialize() {
@@ -268,12 +280,6 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         addJavascriptInterface(externalPlayer, "ExternalPlayer")
         addJavascriptInterface(mediaSegments, "MediaSegments")
         addJavascriptInterface(videoProxyBridge, "VideoProxyBridge")
-
-        // When video proxy is enabled, set WebView background transparent
-        // so the native video layer (SurfaceView) can show through
-        if (appPreferences.videoProxyEnabled) {
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        }
 
         loadWithHosts(this)
     }
