@@ -166,16 +166,16 @@ dependencies {
         }
     }
     implementation(libs.bundles.coil)
-    implementation(libs.cronet.embedded)
+    implementation(libs.cronet.bundled)
 
     // Media
     implementation(libs.androidx.media)
     implementation(libs.androidx.mediarouter)
-    implementation(libs.bundles.androidx.media3) {
+    implementation(libs.bundles.androidx.media3)
+    implementation(libs.androidx.media3.datasource.cronet) {
         // Use the bundled Cronet engine instead of the Play Services provider.
         exclude("com.google.android.gms", "play-services-cronet")
     }
-    implementation(libs.androidx.media3.datasource.cronet)
     implementation(libs.nextlib.media3ext)
     proprietaryImplementation(libs.androidx.media3.cast)
     proprietaryImplementation(libs.bundles.playservices)
