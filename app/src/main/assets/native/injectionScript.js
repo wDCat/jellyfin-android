@@ -3,6 +3,7 @@
     const scripts = [
         '/native/nativeshell.js',
         '/native/EventEmitter.js',
+        '/native/PlaybackBattery.js',
         mainScript.src.concat('?deferred=true')
     ];
 

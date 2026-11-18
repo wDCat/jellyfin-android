@@ -4,8 +4,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.media.session.PlaybackState
+import android.os.BatteryManager
 import android.webkit.JavascriptInterface
 import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
 import androidx.webkit.WebViewCompat
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -75,6 +77,12 @@ class NativeInterface(private val context: Context) : KoinComponent {
 
     @JavascriptInterface
     fun getCodecCapabilities(): String = deviceProfileBuilder.getWebCodecCapabilitiesJson()
+
+    @JavascriptInterface
+    fun getBatteryLevel(): Int {
+        val level = context.getSystemService<BatteryManager>()?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return level?.takeIf { it in 0..100 } ?: -1
+    }
 
     @JavascriptInterface
     fun hasChromecast(): Boolean = BuildConfig.IS_PROPRIETARY
