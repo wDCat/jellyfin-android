@@ -28,7 +28,7 @@
 # Keep AndroidX ComponentFactory
 -keep class androidx.core.app.CoreComponentFactory { *; }
 
-# Assume SDK >= 21 to remove unnecessary compat code
+# Assume SDK >= 31 to remove unnecessary compat code
 -assumevalues class android.os.Build$VERSION {
-  int SDK_INT return 21..2147483647;
+  int SDK_INT return 31..2147483647;
 }
