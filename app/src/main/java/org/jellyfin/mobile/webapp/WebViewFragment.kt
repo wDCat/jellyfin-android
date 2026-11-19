@@ -3,7 +3,6 @@ package org.jellyfin.mobile.webapp
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -17,7 +16,6 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -51,7 +49,6 @@ import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.Constants.FRAGMENT_WEB_VIEW_EXTRA_SERVER
 import org.jellyfin.mobile.utils.applyDefault
 import org.jellyfin.mobile.utils.applyWindowInsetsAsMargins
-import org.jellyfin.mobile.utils.dip
 import org.jellyfin.mobile.utils.extensions.getParcelableCompat
 import org.jellyfin.mobile.utils.extensions.replaceFragment
 import org.jellyfin.mobile.utils.fadeIn
@@ -175,30 +172,6 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
                         manager.eventChannel.trySend(event)
                     }
                 }
-            }
-        }
-
-        // Setup exclusion rects for gestures
-        if (AndroidVersion.isAtLeastQ) {
-            @Suppress("MagicNumber")
-            webView.doOnNextLayout {
-                // Maximum allowed exclusion rect height is 200dp,
-                // offsetting 100dp from the center in both directions
-                // uses the maximum available space
-                val verticalCenter = webView.measuredHeight / 2
-                val offset = webView.resources.dip(100)
-
-                // Arbitrary, currently 2x minimum touch target size
-                val exclusionWidth = webView.resources.dip(96)
-
-                webView.systemGestureExclusionRects = listOf(
-                    Rect(
-                        0,
-                        verticalCenter - offset,
-                        exclusionWidth,
-                        verticalCenter + offset,
-                    ),
-                )
             }
         }
 
