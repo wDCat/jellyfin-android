@@ -151,6 +151,13 @@ class VideoOverlayManager(
         if (released) return
         when (event) {
             VideoProxyEvent.ShowVolumeControl -> showVolumeControl()
+            is VideoProxyEvent.SetEnhancement -> players[event.videoId]?.setEnhancement(event.plan) { state, reason, fps, diagnostics ->
+                mainHandler.post {
+                    if (!released && players.containsKey(event.videoId)) {
+                        callJavaScript("onEnhancement", event.videoId, event.revision, state, reason, fps, diagnostics)
+                    }
+                }
+            } ?: Unit
             is VideoProxyEvent.VideoCreated -> createVideoOverlay(event.videoId)
             is VideoProxyEvent.VideoDestroyed -> destroyVideoOverlay(event.videoId)
             is VideoProxyEvent.SetSource -> setVideoSource(event.videoId, event.src)

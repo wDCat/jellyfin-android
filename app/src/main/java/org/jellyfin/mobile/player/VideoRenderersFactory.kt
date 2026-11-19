@@ -2,6 +2,7 @@ package org.jellyfin.mobile.player
 
 import android.content.Context
 import android.os.Handler
+import android.view.Surface
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
@@ -27,6 +28,7 @@ class VideoRenderersFactory(
     context: Context,
     private val audioProcessor: AudioProcessor? = null,
     private val frameProcessingTiming: VideoFrameProcessingTiming? = null,
+    private val decorateFfmpeg: (Renderer, (Surface, Long) -> Unit) -> Renderer = { renderer, _ -> renderer },
 ) : DefaultRenderersFactory(context) {
     override fun buildAudioRenderers(
         context: Context,
@@ -139,14 +141,14 @@ class VideoRenderersFactory(
         if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
 
         val index = if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) out.size - 1 else out.size
-        out.add(
-            index,
-            FfmpegVideoRenderer(
-                allowedVideoJoiningTimeMs,
-                eventHandler,
-                eventListener,
-                MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
-            ),
+        val ffmpeg = FfmpegVideoRenderer(
+            allowedVideoJoiningTimeMs,
+            eventHandler,
+            eventListener,
+            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY,
         )
+        out.add(index, decorateFfmpeg(ffmpeg) { output, renderTimeMs ->
+            eventHandler.post { eventListener.onRenderedFirstFrame(output, renderTimeMs) }
+        })
     }
 }

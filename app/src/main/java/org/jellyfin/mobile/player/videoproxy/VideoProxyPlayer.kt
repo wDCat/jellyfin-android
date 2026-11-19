@@ -1,6 +1,7 @@
 package org.jellyfin.mobile.player.videoproxy
 
 import android.content.Context
+import org.json.JSONObject
 import android.net.Uri
 import android.view.SurfaceView
 import androidx.media3.common.C
@@ -15,6 +16,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -160,6 +162,7 @@ class VideoProxyPlayer(
     private var postSeekSkipCount = 0
 
     // Debug info tracking
+    private var reportedVideoSize = VideoSize.UNKNOWN
     private var videoDecoderName: String = "N/A"
     private var audioDecoderName: String = "N/A"
     private var droppedFrameCount: Long = 0
@@ -177,6 +180,7 @@ class VideoProxyPlayer(
             context,
             volumeProcessor,
             performance.frameProcessingTiming,
+            decorateFfmpeg = { renderer, firstFrame -> OverlayTrial.ffmpeg(context, renderer, firstFrame) },
         ).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -207,6 +211,7 @@ class VideoProxyPlayer(
             setBandwidthMeter(downloadSpeedMeter)
             setUsePlatformDiagnostics(false)
         }.build().apply {
+            OverlayTrial.configure(context, videoId, this)
             addListener(this@VideoProxyPlayer)
             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
 
@@ -220,6 +225,16 @@ class VideoProxyPlayer(
 
             // Add analytics listener for debug info collection
             addAnalyticsListener(object : AnalyticsListener {
+                override fun onVideoInputFormatChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    format: Format,
+                    decoderReuseEvaluation: DecoderReuseEvaluation?,
+                ) {
+                    // With video effects the renderer may show frames without publishing a VideoSize.
+                    // The HTML player needs intrinsic dimensions before its first timeupdate.
+                    reportInputSize(format)
+                }
+
                 override fun onVideoDecoderInitialized(
                     eventTime: AnalyticsListener.EventTime,
                     decoderName: String,
@@ -306,13 +321,13 @@ class VideoProxyPlayer(
         
         Timber.d("Setting source for $videoId: $url")
         currentSourceUrl = url
+        reportedVideoSize = VideoSize.UNKNOWN
         performance.decoderChanged()
         isSeeking = false
         postSeekSkipCount = 0
         
-        val mediaItem = MediaItem.Builder()
-            .setUri(Uri.parse(url))
-            .build()
+        val mediaItem = MediaItem.Builder().setUri(Uri.parse(url))
+        OverlayTrial.configureItem(context, mediaItem)
 
         val startPosition = pendingSeekPositionMs ?: 0L
         val hasPendingSeek = pendingSeekPositionMs != null
@@ -323,7 +338,7 @@ class VideoProxyPlayer(
         )
         // Commands can arrive while a blob source is still being resolved.
         isSeeking = hasPendingSeek
-        player.setMediaItem(mediaItem, startPosition)
+        player.setMediaItem(mediaItem.build(), startPosition)
         player.prepare()
     }
 
@@ -569,6 +584,10 @@ class VideoProxyPlayer(
         }
     }
 
+    fun setEnhancement(plan: String, status: (String, String?, Int, JSONObject?) -> Unit) {
+        player?.let { OverlayTrial.apply(it, plan, status) }
+    }
+
     fun resetPerformanceSubscription(enabled: Boolean) = performance.resetSubscription(enabled)
 
     fun samplePerformance() = player?.let {
@@ -745,9 +764,31 @@ class VideoProxyPlayer(
         subtitleView?.setCues(cueGroup.cues)
     }
 
+    private fun reportInputSize(format: Format) {
+        if (format.width <= 0 || format.height <= 0) return
+        val ratio = format.pixelWidthHeightRatio.takeIf { it > 0 && it.isFinite() } ?: 1f
+        val size = if (format.rotationDegrees == 90 || format.rotationDegrees == 270) {
+            VideoSize(format.height, format.width, 1f / ratio)
+        } else {
+            VideoSize(format.width, format.height, ratio)
+        }
+        reportVideoSize(size)
+    }
+
     override fun onVideoSizeChanged(videoSize: VideoSize) {
+        if (videoSize.width > 0 && videoSize.height > 0) reportVideoSize(videoSize)
+    }
+
+    private fun reportVideoSize(videoSize: VideoSize) {
+        if (videoSize == reportedVideoSize) return
+        reportedVideoSize = videoSize
         Timber.d("Video size changed for $videoId: ${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
-        callback.onVideoSizeChanged(videoId, videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
+        // Media3 can report the enhanced output size. The Web preset resolver needs the decoded size.
+        val format = player?.videoFormat
+        val useInput = OverlayTrial.available && format != null && format.width > 0 && format.height > 0 &&
+            (format.rotationDegrees == 0 || format.rotationDegrees == 180)
+        if (useInput && format != null) callback.onVideoSizeChanged(videoId, format.width, format.height, format.pixelWidthHeightRatio)
+        else callback.onVideoSizeChanged(videoId, videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)
     }
 
     override fun onRenderedFirstFrame() {

@@ -24,6 +24,15 @@ class VideoProxyBridge(
     fun isEnabled(): Boolean = appPreferences.videoProxyEnabled
 
     @JavascriptInterface
+    fun supportsGpuMenu(): Boolean = OverlayTrial.available
+
+    @JavascriptInterface
+    fun setGpuEnhancement(videoId: String, revision: Int, plan: String) {
+        if (!OverlayTrial.available || videoId.length > 256 || plan.length > 65536) return
+        videoProxyEventChannel.trySend(VideoProxyEvent.SetEnhancement(videoId, revision, plan))
+    }
+
+    @JavascriptInterface
     fun showVolumeControl() {
         videoProxyEventChannel.trySend(VideoProxyEvent.ShowVolumeControl)
     }
@@ -284,6 +293,7 @@ data class VideoBounds(
  */
 sealed class VideoProxyEvent {
     data object ShowVolumeControl : VideoProxyEvent()
+    data class SetEnhancement(val videoId: String, val revision: Int, val plan: String) : VideoProxyEvent()
     data class VideoCreated(val videoId: String) : VideoProxyEvent()
     data class VideoDestroyed(val videoId: String) : VideoProxyEvent()
     data class SetSource(val videoId: String, val src: String) : VideoProxyEvent()

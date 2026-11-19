@@ -32,6 +32,7 @@
     let playbackItem = null;
 
     function enhancementEnabled() {
+        if (bridge.supportsGpuMenu?.() && window.JellyfinWebOverlayEnhancementVersion === 1) return false;
         const seriesId = playbackItem?.SeriesId || (playbackItem?.Type === 'Series' ? playbackItem.Id : null);
         const serverId = playbackItem?.ServerId;
         // Match the web client's per-series settings. A series without a saved
@@ -84,6 +85,7 @@
             }
         });
     }
+    window.addEventListener('android-enhancement-ready', updatePlaybackMode);
     window.addEventListener('nijilucid-settings', updatePlaybackMode);
     window.addEventListener('storage', event => {
         if (event.key === enhancementSettingsKey || event.key?.startsWith(enhancementSettingsKey + '.series.') || event.key === null) updatePlaybackMode();
@@ -131,6 +133,18 @@
 
     // Store for proxied video elements
     const proxiedVideos = new Map();
+    if (bridge.supportsGpuMenu?.()) {
+        window.JellyfinAndroidEnhancement = Object.freeze({
+            videoId(video) {
+                for (const [id, state] of proxiedVideos) {
+                    if (state.originalVideo === video && state.isProxied) return id;
+                }
+            },
+            set(id, revision, plan) {
+                if (proxiedVideos.has(id)) bridge.setGpuEnhancement(id, revision, plan);
+            }
+        });
+    }
     let videoIdCounter = 0;
     const pageId = Date.now().toString(36) + Math.random().toString(36).slice(2);
     const playbackContexts = new Map();
@@ -1140,8 +1154,8 @@
             }
             this.isProxied = true;
             proxiedVideos.set(this.videoId, this);
-            document.dispatchEvent(new Event('videoproxychange'));
             this.ensureNativePlayer();
+            document.dispatchEvent(new Event('videoproxychange'));
             if (resolveBlob) {
                 bridge.resolveAndSetSource(this.videoId, this._playbackContext.itemId, this._playbackContext.mediaSourceId);
             } else {
@@ -1801,6 +1815,11 @@
      */
     window.VideoProxyCallback = {
         onBitrateIndicator: updateBitrateChip,
+        onEnhancement(id, revision, state, reason, fps, diagnostics) {
+            proxiedVideos.get(id)?.originalVideo.dispatchEvent(new CustomEvent('android-enhancement-status', {
+                detail: { revision, state, reason, fps, diagnostics }
+            }));
+        },
 
         /**
          * Called when native player state changes
