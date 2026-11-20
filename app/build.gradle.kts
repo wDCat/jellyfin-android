@@ -123,49 +123,11 @@ android {
     }
 }
 
-// The playback experiment is opt-in and packaged only in the debug APK.
-val overlayTrial = providers.gradleProperty("anime4kTrial").isPresent
-val trialRoot = rootProject.file("tools/anime4k-gpu/overlay")
-android.sourceSets["release"].kotlin.srcDir(trialRoot.resolve("stub"))
-android.sourceSets["debug"].kotlin.srcDir(trialRoot.resolve(if (overlayTrial) "src" else "stub"))
-if (overlayTrial) {
-    val jniDir = layout.buildDirectory.dir("generated/anime4k/menu-jni")
-    val shaders = providers.gradleProperty("anime4kShaders").orElse(
-        rootProject.file("../jellyfin-web/src/lib/nijilucid/engines/anime4k/pipelines/upscale/CNNx2S/shaders").path,
-    )
-    val webRoot = rootProject.file("../jellyfin-web")
-    val gpuAssets = layout.buildDirectory.dir("generated/anime4k/assets")
-    val buildGpuShaders by tasks.registering(Exec::class) {
-        val generator = trialRoot.resolve("gpu_shaders.py")
-        inputs.files(generator, trialRoot.resolve("weights.py"))
-        inputs.dir(shaders)
-        outputs.dir(gpuAssets)
-        commandLine("python3", "-B", generator, shaders.get(), gpuAssets.get().dir("anime4k").asFile)
-    }
-    val modelAssets = layout.buildDirectory.dir("generated/anime4k/catalog")
-    val buildModelAssets by tasks.registering(Exec::class) {
-        val generator = trialRoot.resolve("model-assets.cjs")
-        inputs.files(generator, trialRoot.resolve("split-wide-passes.cjs"))
-        inputs.dir(webRoot.resolve("src/lib/nijilucid"))
-        outputs.dir(modelAssets)
-        commandLine("node", generator, webRoot, modelAssets.get().asFile)
-    }
-    android.sourceSets["debug"].assets.srcDir(modelAssets.get().asFile)
-    android.sourceSets["debug"].assets.srcDir(gpuAssets.get().asFile)
-    tasks.matching { it.name.matches(Regex("merge.*DebugAssets")) }.configureEach { dependsOn(buildGpuShaders, buildModelAssets) }
-    val placeboSources = layout.buildDirectory.dir("generated/anime4k/placebo-assets")
-    val buildNative by tasks.registering(Exec::class) {
-        inputs.files(trialRoot.resolve("build-placebo.sh"), trialRoot.resolve("build-renderer.sh"), trialRoot.resolve("placebo.c"), trialRoot.resolve("libplacebo-gles.patch"))
-        outputs.dirs(jniDir, placeboSources)
-        commandLine("bash", trialRoot.resolve("build-renderer.sh"), jniDir.get().asFile,
-            layout.buildDirectory.dir("intermediates/overlay-placebo").get().asFile, placeboSources.get().asFile)
-    }
-    android.sourceSets["debug"].assets.srcDir(placeboSources.get().asFile)
-    tasks.matching { it.name.matches(Regex("merge.*DebugAssets")) }.configureEach { dependsOn(buildNative) }
-    android.sourceSets["debug"].jniLibs.srcDir(jniDir.get().asFile)
-    android.sourceSets["debug"].manifest.srcFile(trialRoot.resolve("AndroidManifest.xml"))
-    tasks.matching { it.name.matches(Regex("merge.*DebugJniLibFolders")) }.configureEach { dependsOn(buildNative) }
-    dependencies.add("debugImplementation", "androidx.media3:media3-effect:" + libs.versions.androidx.media3.get())
+// Only the ADB benchmark entry point requires the trial flag.
+if (providers.gradleProperty("anime4kTrial").isPresent) {
+    val fixture = rootProject.file("tools/anime4k-gpu/overlay")
+    android.sourceSets["debug"].kotlin.srcDir(fixture.resolve("src"))
+    android.sourceSets["debug"].manifest.srcFile(fixture.resolve("AndroidManifest.xml"))
 }
 
 base.archivesName.set("jellyfin-android-v${project.getVersionName()}")
@@ -217,6 +179,7 @@ dependencies {
     implementation(libs.androidx.media)
     implementation(libs.androidx.mediarouter)
     implementation(libs.bundles.androidx.media3)
+    implementation(libs.androidx.media3.effect)
     implementation(libs.androidx.media3.datasource.cronet) {
         // Use the bundled Cronet engine instead of the Play Services provider.
         exclude("com.google.android.gms", "play-services-cronet")

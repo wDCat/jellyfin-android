@@ -1,7 +1,6 @@
 package org.jellyfin.mobile.player.videoproxy
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.opengl.GLES20 as GL
 import android.util.Log
 import androidx.media3.common.VideoFrameProcessingException
@@ -10,7 +9,6 @@ import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
-import java.nio.ByteBuffer
 
 /** Four source-resolution fragment passes followed by 2x pixel shuffle and base-image composition. */
 @UnstableApi
@@ -36,7 +34,7 @@ internal class GpuProgram(private val context: Context, private val hdr: Boolean
             }"""
     }
 
-    private val bench = context as? OverlayTrialActivity
+    private val bench = context as? OverlayBenchmark
     private val passes = mutableListOf<GlProgram>()
     private val compose = program(COMPOSE)
     private val textures = IntArray(2)
@@ -56,7 +54,7 @@ internal class GpuProgram(private val context: Context, private val hdr: Boolean
         if (width != inputWidth || height != inputHeight) freeTargets()
         width = inputWidth
         height = inputHeight
-        active = !hdr && OverlayTrial.supportsSize(width, height)
+        active = !hdr && OverlayEnhancement.supportsSize(width, height)
         if (active && textures[0] == 0) {
             try {
                 val started = System.nanoTime()
@@ -71,7 +69,7 @@ internal class GpuProgram(private val context: Context, private val hdr: Boolean
                     fbos[i] = GlUtil.createFboForTexture(textures[i])
                     check(GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER) == GL.GL_FRAMEBUFFER_COMPLETE)
                 }
-                Log.i(OverlayTrial.TAG, "active GPU CNNx2S ${width}x$height -> ${width*2}x${height*2} " +
+                Log.i(OverlayEnhancement.TAG, "active GPU CNNx2S ${width}x$height -> ${width*2}x${height*2} " +
                     "renderer=${GL.glGetString(GL.GL_RENDERER)} setupMs=${(System.nanoTime()-started)/1e6}")
             } catch (e: Exception) {
                 throw VideoFrameProcessingException(e)
@@ -103,14 +101,8 @@ internal class GpuProgram(private val context: Context, private val hdr: Boolean
             drawOutput(inputTexId, features, active)
             GlUtil.checkGlError()
             if (bench != null && active) {
-                GL.glFinish()
-                Log.i(OverlayTrial.TAG, "gpuFrame pts=$presentationTimeUs total=${System.nanoTime()-start}")
-                if (++frames == 72 && bench.intent.getBooleanExtra("capture", false)) {
-                    saveCrop("enhanced")
-                    drawOutput(inputTexId, features, false)
-                    saveCrop("bilinear")
-                    drawOutput(inputTexId, features, true)
-                    Log.i(OverlayTrial.TAG, "captured paired crops pts=$presentationTimeUs")
+                bench.onCnnFrame(++frames, presentationTimeUs, start, width, height) { enhanced ->
+                    drawOutput(inputTexId, features, enhanced)
                 }
             }
         } catch (e: Exception) {
@@ -126,25 +118,6 @@ internal class GpuProgram(private val context: Context, private val hdr: Boolean
         compose.setFloatUniform("strength", if (enhanced) 1f else 0f)
         compose.bindAttributesAndUniforms()
         GL.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4)
-    }
-
-    /** Capture the same central patch twice from one decoded frame, only in a separate visual trial. */
-    private fun saveCrop(label: String) {
-        val side = 512
-        val bytes = ByteBuffer.allocateDirect(side * side * 4)
-        GL.glReadPixels(width - side / 2, height - side / 2, side, side, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, bytes)
-        GlUtil.checkGlError()
-        val topDown = ByteBuffer.allocateDirect(bytes.capacity())
-        for (y in side - 1 downTo 0) {
-            bytes.limit((y + 1) * side * 4)
-            bytes.position(y * side * 4)
-            topDown.put(bytes)
-        }
-        topDown.flip()
-        val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(topDown)
-        context.cacheDir.resolve("anime4k-$label.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
     }
 
     private fun freeTargets() {

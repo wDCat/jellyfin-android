@@ -119,7 +119,7 @@ internal class EnhancedFfmpegRenderer(
                         }
 
                         override fun onError(exception: VideoFrameProcessingException) {
-                            Log.w(OverlayTrial.TAG, "FFmpeg enhancement failed", exception)
+                            Log.w(OverlayEnhancement.TAG, "FFmpeg enhancement failed", exception)
                             failed = true
                             registered.forEach { it.outputFailed() }
                             ready.countDown()
@@ -133,7 +133,7 @@ internal class EnhancedFfmpegRenderer(
             } else processor?.setOutputSurfaceInfo(info)
             super.handleMessage(Renderer.MSG_SET_VIDEO_OUTPUT, processor!!.inputSurface)
         } catch (e: Exception) {
-            Log.w(OverlayTrial.TAG, "Returning FFmpeg to direct output", e)
+            Log.w(OverlayEnhancement.TAG, "Returning FFmpeg to direct output", e)
             failed = true
             effects.filterIsInstance<MenuGpuEffect>().forEach { it.outputFailed() }
             detach()

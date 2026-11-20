@@ -180,7 +180,7 @@ class VideoProxyPlayer(
             context,
             volumeProcessor,
             performance.frameProcessingTiming,
-            decorateFfmpeg = { renderer, firstFrame -> OverlayTrial.ffmpeg(context, renderer, firstFrame) },
+            decorateFfmpeg = { renderer, firstFrame -> OverlayEnhancement.ffmpeg(context, renderer, firstFrame) },
         ).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -211,7 +211,10 @@ class VideoProxyPlayer(
             setBandwidthMeter(downloadSpeedMeter)
             setUsePlatformDiagnostics(false)
         }.build().apply {
-            OverlayTrial.configure(context, videoId, this)
+            if (OverlayEnhancement.available) {
+                setVideoEffects(emptyList())
+                (context as? OverlayBenchmark)?.configurePlayer(videoId, this)
+            }
             addListener(this@VideoProxyPlayer)
             applyDefaultAudioAttributes(C.AUDIO_CONTENT_TYPE_MOVIE)
 
@@ -327,7 +330,7 @@ class VideoProxyPlayer(
         postSeekSkipCount = 0
         
         val mediaItem = MediaItem.Builder().setUri(Uri.parse(url))
-        OverlayTrial.configureItem(context, mediaItem)
+        (context as? OverlayBenchmark)?.clip?.let(mediaItem::setClippingConfiguration)
 
         val startPosition = pendingSeekPositionMs ?: 0L
         val hasPendingSeek = pendingSeekPositionMs != null
@@ -585,7 +588,7 @@ class VideoProxyPlayer(
     }
 
     fun setEnhancement(plan: String, status: (String, String?, Int, JSONObject?) -> Unit) {
-        player?.let { OverlayTrial.apply(it, plan, status) }
+        player?.let { OverlayEnhancement.apply(it, plan, status) }
     }
 
     fun resetPerformanceSubscription(enabled: Boolean) = performance.resetSubscription(enabled)
@@ -785,7 +788,7 @@ class VideoProxyPlayer(
         Timber.d("Video size changed for $videoId: ${videoSize.width}x${videoSize.height} pixelRatio=${videoSize.pixelWidthHeightRatio}")
         // Media3 can report the enhanced output size. The Web preset resolver needs the decoded size.
         val format = player?.videoFormat
-        val useInput = OverlayTrial.available && format != null && format.width > 0 && format.height > 0 &&
+        val useInput = OverlayEnhancement.available && format != null && format.width > 0 && format.height > 0 &&
             (format.rotationDegrees == 0 || format.rotationDegrees == 180)
         if (useInput && format != null) callback.onVideoSizeChanged(videoId, format.width, format.height, format.pixelWidthHeightRatio)
         else callback.onVideoSizeChanged(videoId, videoSize.width, videoSize.height, videoSize.pixelWidthHeightRatio)

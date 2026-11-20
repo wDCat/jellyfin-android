@@ -24,11 +24,11 @@ class VideoProxyBridge(
     fun isEnabled(): Boolean = appPreferences.videoProxyEnabled
 
     @JavascriptInterface
-    fun supportsGpuMenu(): Boolean = OverlayTrial.available
+    fun supportsGpuMenu(): Boolean = OverlayEnhancement.available
 
     @JavascriptInterface
     fun setGpuEnhancement(videoId: String, revision: Int, plan: String) {
-        if (!OverlayTrial.available || videoId.length > 256 || plan.length > 65536) return
+        if (!OverlayEnhancement.available || videoId.length > 256 || plan.length > 65536) return
         videoProxyEventChannel.trySend(VideoProxyEvent.SetEnhancement(videoId, revision, plan))
     }
 

@@ -1,18 +1,28 @@
 # GPU enhancement in the Android overlay
 
-In the arm64 trial APK, open the Web player's existing picture enhancement menu. Select a mode, tier, and output size or use a saved custom chain. The same per-series settings and optional CRT and monochrome controls apply. Switching effects during playback keeps the video in the ExoPlayer overlay. Turning enhancement off removes the effect chain.
+On arm64 Android devices, open the Web player's existing picture enhancement menu. Select a mode, tier, and output size or use a saved custom chain. The same per-series settings and optional CRT and monochrome controls apply. Switching effects during playback keeps the video in the ExoPlayer overlay. Turning enhancement off removes the effect chain.
 
 Web resolves the current preset to effect IDs and parameters. Android loads the corresponding bundled GPU shaders, creates the GLES passes, and reports activation after rendering a frame. A revision and the proxied video's ID associate each status update with its request. MediaCodec and FFmpeg software video use the same GPU model catalog. For SDR software decoding, Media3 owns the output surface while the menu switches chains, including the empty chain. HDR bypasses enhancement. Older clients without the bridge retain the existing browser playback policy.
 
-The catalog is generated from the adjacent Web checkout's NijiLucid descriptor registry and 76 pinned GLSL sources. The build verifies the source hashes. Standalone Anime4K CNNx2S at the tested 2× sizes uses the specialized four-pass GLES implementation; other models and chains use the libplacebo OpenGL backend. The trial APK includes the shader notices and the source, license, build script and GLES patch for the linked libplacebo version.
+The catalog is generated from the adjacent Web checkout's NijiLucid descriptor registry and 76 pinned GLSL sources. The build verifies the source hashes. Standalone Anime4K CNNx2S at the tested 2× sizes uses the specialized four-pass GLES implementation; other models and chains use the libplacebo OpenGL backend. Both release flavors include the shader notices and the source, license, build script and GLES patch for the linked libplacebo version.
 
 The original Anime4K weights are from [bloc97/Anime4K](https://github.com/bloc97/Anime4K) (MIT, copyright 2019–2021 bloc97). Retain its [license](https://github.com/bloc97/Anime4K/blob/master/LICENSE) when distributing the generated shaders or weights.
 
-Build the proprietary debug trial with the matching Web checkout and its Node dependencies installed. Set `ANDROID_NDK_HOME` to the Linux NDK 29. The native build uses Meson, Ninja and patch. The first build downloads pinned dependencies.
+The normal `./gradlew assembleRelease` build uses the GPU shaders in `app/src/main/assets` and the arm64 libraries in `app/src/main/jniLibs`. Both Libre and Proprietary use the Web menu preference. When the native library cannot load, the client uses its existing Web enhancement policy.
+
+To update the bundled files, use the matching Jellyfin Web checkout with its Node dependencies installed, Python with NumPy, Meson, Ninja and Android NDK 29 on Linux. From the Android repository root:
 
 ```sh
-./gradlew :app:assembleProprietaryDebug -Panime4kTrial
+overlay=tools/anime4k-gpu/overlay
+web=../jellyfin-web
+assets=app/src/main/assets
+python3 -B "$overlay/gpu_shaders.py" "$web/src/lib/nijilucid/engines/anime4k/pipelines/upscale/CNNx2S/shaders" "$assets/anime4k"
+node "$overlay/model-assets.cjs" "$web" "$assets"
+bash "$overlay/build-renderer.sh" app/src/main/jniLibs build/overlay-placebo "$assets"
+"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded app/src/main/jniLibs/arm64-v8a/*.so
 ```
+
+The optional debug fixture can be built with `./gradlew :app:assembleProprietaryDebug -Panime4kTrial`.
 
 To exercise a particular model in the ADB-only fixture activity, pass `--es model` with its full catalog ID, for example `artcnn/Upscale/C4F16`. Omit the ID to use CNNx2S. The activity uses the normal VideoOverlayManager and a 1920×1080 viewport. For a direct baseline pass `--ez hybrid false`; this historical intent extra controls the fixture only.
 

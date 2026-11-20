@@ -14,7 +14,6 @@ import java.util.Locale
 import kotlin.math.ceil
 
 internal object PlaceboNative {
-    init { System.loadLibrary("overlay_gpu") }
     external fun create(sources: Array<String>): Long
     external fun draw(handle: Long, texture: Int, width: Int, height: Int, fbo: Int, targetWidth: Int, targetHeight: Int): Boolean
     external fun release(handle: Long)
@@ -122,7 +121,7 @@ internal class MenuGpuEffect(private val plan: MenuPlan, private val sourceFps: 
         private var handle = 0L
         private var fast: GpuProgram? = null
         private var stats: GpuFrameStats? = null
-        private val waitsForGpu = context is OverlayTrialActivity || plan.monitorGpu
+        private val waitsForGpu = context is OverlayBenchmark || plan.monitorGpu
 
         override fun configure(inputWidth: Int, inputHeight: Int): Size {
             reset()
@@ -138,7 +137,7 @@ internal class MenuGpuEffect(private val plan: MenuPlan, private val sourceFps: 
                 val max = IntArray(1)
                 GL.glGetIntegerv(GL.GL_MAX_TEXTURE_SIZE, max, 0)
                 require(plan.width <= max[0] && plan.height <= max[0]) { "EnhancementResolutionLimit" }
-                if (plan.singleCnn && OverlayTrial.supportsSize(width, height) && plan.width == width*2 && plan.height == height*2) {
+                if (plan.singleCnn && OverlayEnhancement.supportsSize(width, height) && plan.width == width*2 && plan.height == height*2) {
                     fast = GpuProgram(context, false)
                     fast!!.configure(width, height)
                     stages = 5 // Four CNN convolutions and the 2x composition pass.
@@ -163,7 +162,7 @@ internal class MenuGpuEffect(private val plan: MenuPlan, private val sourceFps: 
         }
 
         private fun fail(e: Throwable) {
-            Log.w(OverlayTrial.TAG, "GPU plan failed", e)
+            Log.w(OverlayEnhancement.TAG, "GPU plan failed", e)
             reset()
             val reason = e.message?.takeIf { it == "EnhancementResolutionLimit" || it == "EnhancementModeInvalid" }
             status("error", reason ?: "EnhancementCompileFailed", 0, null)
@@ -181,7 +180,7 @@ internal class MenuGpuEffect(private val plan: MenuPlan, private val sourceFps: 
                     }
                     if (waitsForGpu) GL.glFinish()
                     val end = System.nanoTime()
-                    if (context is OverlayTrialActivity) Log.i(OverlayTrial.TAG, "menuFrame pts=$presentationTimeUs total=${end-start}")
+                    if (context is OverlayBenchmark) Log.i(OverlayEnhancement.TAG, "menuFrame pts=$presentationTimeUs total=${end-start}")
                     stats?.record(start, end, status)
                     return
                 } catch (e: Exception) {
