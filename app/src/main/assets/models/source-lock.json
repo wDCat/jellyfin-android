@@ -1,0 +1,382 @@
+{
+  "version": 1,
+  "targets": {
+    "anime4k": {
+      "component": "Anime4K",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/bloc97/Anime4K",
+      "archiveUrl": "https://github.com/bloc97/Anime4K/archive/7684e9586f8dcc738af08a1cdceb024cc184f426.zip",
+      "commit": "7684e9586f8dcc738af08a1cdceb024cc184f426",
+      "referenceRoot": ".reference/Anime4K",
+      "includedFiles": [
+        {
+          "path": "glsl/Deblur/Anime4K_Deblur_DoG.glsl",
+          "sha256": "480367048caca7520b6f66d4db731c96103677d0e5bad69d72adf46f58a59532"
+        },
+        {
+          "path": "glsl/Denoise/Anime4K_Denoise_Bilateral_Mean.glsl",
+          "sha256": "bdcbc73cecdbc2fda879824cad822c70cc89c9e93d747fa740c1301c3d270dee"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_S.glsl",
+          "sha256": "97c24dc370ab300c108bfaa09db7f175aeff343674842c299cf3940a3d330427"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_M.glsl",
+          "sha256": "67ea3ed26539e8de3b7d307688535d2ff17e8d147e11dda0247da7770dbecf41"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_L.glsl",
+          "sha256": "d6efe215e6ee8af1ec560478a91afc1df83fac4ba43b2c806ee61ca2267ed674"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_Soft_M.glsl",
+          "sha256": "a78a2c76898e08e09e442a9628c64208c26e8e15789649b8755223f009794c02"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_Soft_VL.glsl",
+          "sha256": "094334b0e20c1a201fe4941c7c68de72451e5aee9efb5524d7fb82b12dca64b9"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_VL.glsl",
+          "sha256": "35036722733305cd4d4e57660b883bbe2569ba2914033c254327107d7b77e35e"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_CNN_UL.glsl",
+          "sha256": "81ec48ff700108c8e1571ed82d4527006ee200c05e94f8b7f836c02179169b40"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Restore_GAN_UUL.glsl",
+          "sha256": "b0f36492734277f4c7cf180047ca827d0af89dafed231aa0ee3d6ca3593d4cc9"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_CNN_x2_S.glsl",
+          "sha256": "4c53ec2e287908f7ee7bcb266b0170421626d663576468b7d7dafc62962649a4"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_CNN_x2_M.glsl",
+          "sha256": "716e02098a68f0d648761f2b96b4dd139e1cb09b174bb369fca3aa34328fff7e"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_CNN_x2_L.glsl",
+          "sha256": "db1fedf7be82f6fd9034e6bf39b64daf2b7576988bb584ec38f24f5236b1cd97"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_CNN_x2_VL.glsl",
+          "sha256": "5638fe31c37c151a3443fea3451a3ef91af073f4dbb9615f6c0d1e29db11493d"
+        },
+        {
+          "path": "glsl/Upscale+Denoise/Anime4K_Upscale_Denoise_CNN_x2_VL.glsl",
+          "sha256": "359c48fe5a317fbc6b706ce368401eef496e84ed98abac7a43efebca2b65d79b"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_CNN_x2_UL.glsl",
+          "sha256": "fa7cf0ecc1cca84d8291bbff5a42b60f5816d57b4e97d42bc377235ac8db02e8"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_GAN_x3_L.glsl",
+          "sha256": "fecde271daf90df63d03f9999da57080b268d085cce1b60c0fbfe4589688da21"
+        },
+        {
+          "path": "glsl/Upscale/Anime4K_Upscale_GAN_x4_UUL.glsl",
+          "sha256": "f4740658e3b8a15f3eb2e34d73a7b05d130bb2af11f3e71685636e4809e917ee"
+        },
+        {
+          "path": "glsl/Restore/Anime4K_Clamp_Highlights.glsl",
+          "sha256": "a2a9bf7fbc1d75d09660ca2e701e4d7fb0cf5457b94da47e1825032fa2b3671a"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "5bad448b737378e3d0c977ad0d0521fa37ad279a7e76ea9a31d9257eeb6953f5"
+        },
+        {
+          "path": "README.md",
+          "sha256": "0922a6645ea63fed3f7c96b3c0e0e5d788e06d9e2cf28274c6a9460890e91d9a"
+        }
+      ]
+    },
+    "artcnn": {
+      "component": "ArtCNN",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/Artoriuz/ArtCNN",
+      "archiveUrl": "https://github.com/Artoriuz/ArtCNN/archive/f606e1f0ba7e6f0ab55049f33dac4d854819b00b.zip",
+      "commit": "f606e1f0ba7e6f0ab55049f33dac4d854819b00b",
+      "referenceRoot": ".reference/ArtCNN",
+      "includedFiles": [
+        {
+          "path": "GLSL/ArtCNN_C4F16.glsl",
+          "sha256": "03d0b3d31cb82c898a94a46663021a3e8f02c5a21d69c5cfdf0208de4bfd453e"
+        },
+        {
+          "path": "GLSL/ArtCNN_C4F16_DS.glsl",
+          "sha256": "57df650fddec3969e17799f5522c9b03dd2d33b1aeace237fef216bf3858125a"
+        },
+        {
+          "path": "GLSL/ArtCNN_C4F16_DN.glsl",
+          "sha256": "047f33cd43ca3751b00c7c81206e076ac921c1fbc06d49f23010a0b428271acf"
+        },
+        {
+          "path": "GLSL/ArtCNN_C4F32.glsl",
+          "sha256": "f773bce6cf5fe7e5e5d599a695edd40df5cd7a20c3d08c4d164d07591d5bead3"
+        },
+        {
+          "path": "GLSL/ArtCNN_C4F32_DS.glsl",
+          "sha256": "a04c9cba6fbb8e6db9239d61848390208aedf8e348ef116e12174c803d22077e"
+        },
+        {
+          "path": "GLSL/ArtCNN_C4F32_DN.glsl",
+          "sha256": "6b51a6f7d75826c9492c3f78b5e60acffa24a71928e2d47c4a329423922a143c"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "285055c4b8b8bcb891685ca9cc6047baf25a8c1cf56e8ab2cbcdecaea0437c0b"
+        },
+        {
+          "path": "README.md",
+          "sha256": "83f3b8881193308e5554c27bd4a5521d37f6b9c1a859a5ea937dd0eaa416f11d"
+        }
+      ]
+    },
+    "acnet": {
+      "component": "ACNetGLSL",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/TianZerL/ACNetGLSL",
+      "archiveUrl": "https://github.com/TianZerL/ACNetGLSL/archive/c7d2d8dbb5364c550e5bfb738860fc9bcc0ea424.zip",
+      "commit": "c7d2d8dbb5364c550e5bfb738860fc9bcc0ea424",
+      "referenceRoot": ".reference/ACNetGLSL",
+      "includedFiles": [
+        {
+          "path": "glsl/acnet/acnet_f8b18_box_hdn.glsl",
+          "sha256": "7f1376025c14f68dc7425d1696eb298449999ed3661c7e517bfe5fff0dc31791"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b18_box.glsl",
+          "sha256": "f167351509038d44b9b1fd05c4304162954e97f6aa2a01c3ee4017906ee069d1"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b18_hdn.glsl",
+          "sha256": "86eb7bdcc2afda82a0e875f8d33f712cb8981c3635c41cb20b7fb2d367ef5141"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b18.glsl",
+          "sha256": "1f7355825554367054daa4ecc4c6770f6acdae6a45fa9688df7b20aad3144555"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b4_box_hdn.glsl",
+          "sha256": "043fcba597f29ddc6e34805c345890a370af5f2e4933ea082534611bfa0eb999"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b4_box.glsl",
+          "sha256": "1d0137d78e9100c22223aacf9c11ccf977852a9a14d0f3b9e4e2e99df94a8940"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b4_hdn.glsl",
+          "sha256": "2765eb42d0e221ada563b07977497417d1c4474ccf38b913aa62b6bdd9468058"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b4.glsl",
+          "sha256": "cd7bd35d2f124f9697b2a1bc82586a395f5f91fba2cedc57a1845853c9af8714"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b8_box_hdn.glsl",
+          "sha256": "574ad489ae22fee6c822e668cc73ca45676329506f285e199c6955e9bd960413"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b8_box.glsl",
+          "sha256": "e695c84c529bfc3b2e63e18c110bf9f44084900fd38b54fcdf8900cb1dfffe6e"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b8_hdn.glsl",
+          "sha256": "d37ca3fe5144be9900d19263c398875812c59e6398904493a6cdf63245e2690e"
+        },
+        {
+          "path": "glsl/acnet/acnet_f8b8.glsl",
+          "sha256": "619ec147e5d679d806567af1f783f77f22b60066ea866cbab731c94ff1a2c885"
+        },
+        {
+          "path": "glsl/acnet-legacy/acnet_legacy_gan.glsl",
+          "sha256": "8f191dc4d36c66ec908c0fa174675704efa84750e92cc3e0c34b693ee7c5ce37"
+        },
+        {
+          "path": "glsl/acnet-legacy/acnet_legacy_hdn0.glsl",
+          "sha256": "ef1f66e89657b2a60e96f23266cbe465ab028adbbe7bd90a8115bb6fdf4be472"
+        },
+        {
+          "path": "glsl/acnet-legacy/acnet_legacy_hdn1.glsl",
+          "sha256": "7359d0f988afe3ddc9239470cd3b7dcaefcc891cda8b74afcf4508fe149fa183"
+        },
+        {
+          "path": "glsl/acnet-legacy/acnet_legacy_hdn2.glsl",
+          "sha256": "212f09a2c632935408c9cbd94b5ca17f8071d838f8600522273c1011dd6712dd"
+        },
+        {
+          "path": "glsl/acnet-legacy/acnet_legacy_hdn3.glsl",
+          "sha256": "83d80d0c486a794c8bab22ebad567e52e98d59506dea1173c1775f0201ad431e"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b16_box_hdn.glsl",
+          "sha256": "2c530e8132335b1a1da6f9f9a9942085af5e6f5d02234d90181f88139a982ac5"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b16_box.glsl",
+          "sha256": "bb496bd7d6121757a0cc68af3abe8a8f543703b2ff70a9a44ce655f94a1b9ca7"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b16_hdn.glsl",
+          "sha256": "8659f37ff5877f0e7d084301997850b03bad472c7a615fe0f0e21967e7dd7012"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b16.glsl",
+          "sha256": "09917c27389b5d4a3428e3bfc759049db59ec17597bd5a8edfd1c667a7a7b532"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b32_box_hdn.glsl",
+          "sha256": "d554085759f56272e510a570b379c2a85677bad4675f2ae1ec01661b7b519de5"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b32_box.glsl",
+          "sha256": "4cf5a30bfae0427e4fe5f0bc5511b133118283eb95c1721425659d57127fce6b"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b32_hdn.glsl",
+          "sha256": "e6125775f878f70a038c57e7ac63a85f4bf28c157d355db57514fcc46903fd6a"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b32.glsl",
+          "sha256": "00b0e164677147915bd93557a42bc0e81ecdde9606565d5350763fd193b1046d"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b64_box_hdn.glsl",
+          "sha256": "98f860aa54780af70a5891e896ed9bcfd140c5843136db600da3d8436fcd7b83"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b64_box.glsl",
+          "sha256": "bb77d350e01584030988e5d96083d9dbe840443955c8428c8f80f58b8da02b6e"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b64_hdn.glsl",
+          "sha256": "b042892a291f518d223597e674b9c062db1f6df2034bd39d13875eb06596d0c0"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b64.glsl",
+          "sha256": "de1d50dddc1351e749f86254c8959078fcacf266fb13dbd8d83c66c3d2b0afea"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b8_box_hdn.glsl",
+          "sha256": "8f672e8aca3e1a1065631f26c6409f51cf94c033b1f4d10b1a4bbb28fcece08c"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b8_box.glsl",
+          "sha256": "588779d52311ae164ab743b79cfd05cef181f8e85b017ddcfd7d507c6e3a9082"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b8_hdn.glsl",
+          "sha256": "b88b47c7b554e0106c3531f5cce491bc14161735d45463de2ace896243eeac8a"
+        },
+        {
+          "path": "glsl/arnet/arnet_f8b8.glsl",
+          "sha256": "c36374511bb5b14dc08824a41ce271a1e2a9cb50085f98814c7f83c541fda90c"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "e173831b12b2c19404b18b2731829aee745b67b015a8463685f16865c8d1f82d"
+        },
+        {
+          "path": "README.md",
+          "sha256": "32cc1dee6eb82548866ce1b4c33a1d93f529a1f22f94fe886b994f318bb1586e"
+        }
+      ]
+    },
+    "cunny": {
+      "component": "CuNNy",
+      "license": "LGPL-3.0-or-later",
+      "sourceUrl": "https://github.com/funnyplanter/CuNNy",
+      "archiveUrl": "https://github.com/funnyplanter/CuNNy/archive/906031bb00c15dd6a6bbbaa21c0eb0b724ca8437.zip",
+      "commit": "906031bb00c15dd6a6bbbaa21c0eb0b724ca8437",
+      "referenceRoot": ".reference/CuNNy",
+      "generatedRoot": "src/engines/cunny/generated",
+      "includedFiles": [
+        {
+          "path": "mpv/ds/CuNNy-2x12-DS.glsl",
+          "sha256": "a04ef20c7cf3ccb0b69f0629586146cabf8af695247b1b9e0b4e7281d6045ff6"
+        },
+        {
+          "path": "mpv/ds/CuNNy-3x12-DS.glsl",
+          "sha256": "ef2db370d5fb8ccca7d423e76e3e3cc97c036508cefa300f83833748f96a4c6b"
+        },
+        {
+          "path": "mpv/ds/CuNNy-4x12-DS.glsl",
+          "sha256": "eb8bac2b9229706cea27cd54d66c9f9f8d40fd37773a7fc9a4f27ee4f8faacff"
+        },
+        {
+          "path": "mpv/ds/CuNNy-4x16-DS.glsl",
+          "sha256": "2e9dba9e7915d7d8b35db4a08d63a64ff1406f3e975d377f2b6f90e37bb187f4"
+        },
+        {
+          "path": "mpv/ds/CuNNy-4x24-DS.glsl",
+          "sha256": "477c026baee0f52cf3a222d564f5501623d5d192e1a64a9277431fe5dd277d84"
+        },
+        {
+          "path": "mpv/ds/CuNNy-4x32-DS.glsl",
+          "sha256": "de2cd034d3c9bab1f3fe340eb6220ce7de7d1b0615f330181ad00288f3fe1a3d"
+        },
+        {
+          "path": "mpv/ds/CuNNy-8x32-DS.glsl",
+          "sha256": "87e79777b7b1ed347f1ca6bc9ab798c5b999bc827d09b2877c5ed5a783a90c66"
+        },
+        {
+          "path": "mpv/ds/CuNNy-fast-DS.glsl",
+          "sha256": "86681e39ef4a2f22ad5622be88c2bff179007f4f9b898e05638d6ab1239e03c0"
+        },
+        {
+          "path": "mpv/ds/CuNNy-faster-DS.glsl",
+          "sha256": "bdb1fc5718aec6414e2cf94a596c10c8e664a6bac9f37be238a8e212045debd5"
+        },
+        {
+          "path": "mpv/soft/CuNNy-2x12-SOFT.glsl",
+          "sha256": "74581cfcfd30ce03d224f39c50aa71519f1752e37fcd9445d8ffd609cc4d2b8d"
+        },
+        {
+          "path": "mpv/soft/CuNNy-3x12-SOFT.glsl",
+          "sha256": "09e956d75212ca58a31f7379edd09da18491490f82a7e68d032c21f6dac0ad1e"
+        },
+        {
+          "path": "mpv/soft/CuNNy-4x12-SOFT.glsl",
+          "sha256": "d9ff715f59f0679cdf0d811dfb1f8481e296b7943a0d742eaf56fe7403b10f0f"
+        },
+        {
+          "path": "mpv/soft/CuNNy-4x16-SOFT.glsl",
+          "sha256": "902fcac5db6e0577bc80fadd52497221b05c9054e316d6bf4427019c7d4ab1f4"
+        },
+        {
+          "path": "mpv/soft/CuNNy-4x24-SOFT.glsl",
+          "sha256": "c27747efc8f7bf2e72220dd1f1aed2e0f6644a296c395cd96c80323673f3adf9"
+        },
+        {
+          "path": "mpv/soft/CuNNy-4x32-SOFT.glsl",
+          "sha256": "19b9d5bcbf8c2428b256c15f1f01ed853b19d57752893b48b2f6ab22004fdbb8"
+        },
+        {
+          "path": "mpv/soft/CuNNy-fast-SOFT.glsl",
+          "sha256": "7f5077ebe18ac599f088e8d8c0401a195132bcc1b078c9f3bb2f1baf16a92c8c"
+        },
+        {
+          "path": "mpv/soft/CuNNy-faster-SOFT.glsl",
+          "sha256": "6166d08af2fb256e7d3510ede1a427c23e0580055ada4d9c835ae8bced3f9613"
+        },
+        {
+          "path": "mpv/soft/CuNNy-veryfast-SOFT.glsl",
+          "sha256": "9c63e86ef43322c31b6def499e937d79edd0d8311fc318b76769d14235ccac63"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118"
+        },
+        {
+          "path": "README.md",
+          "sha256": "211471b85d8f2e4ec09ab1e6e760b5a486d25f94357f96272fc68b737b161b2d"
+        }
+      ]
+    }
+  }
+}

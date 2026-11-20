@@ -1,0 +1,63 @@
+--- a/src/opengl/gpu.c
++++ b/src/opengl/gpu.c
+@@ -154,7 +154,7 @@
+                 params->max_glsl_version, glsl->version);
+     }
+ 
+-    if (gl_test_ext(gpu, "GL_ARB_compute_shader", 43, 0) && glsl->version >= 420) {
++    if (gl_test_ext(gpu, "GL_ARB_compute_shader", 43, 31) && glsl->version >= (p->gles_ver ? 310 : 420)) {
+         glsl->compute = true;
+         get(GL_MAX_COMPUTE_SHARED_MEMORY_SIZE, &glsl->max_shmem_size);
+         get(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &glsl->max_group_threads);
+--- a/src/opengl/gpu_pass.c
++++ b/src/opengl/gpu_pass.c
+@@ -295,7 +295,8 @@
+             // update the texture/image unit bindings after creating the shader
+             // program, since specifying it directly requires GLSL 4.20+
+             GLint loc = gl->GetUniformLocation(pass_gl->program, desc->name);
+-            gl->Uniform1i(loc, desc->binding);
++            if (!(gpu->glsl.gles && desc->type == PL_DESC_STORAGE_IMG))
++                gl->Uniform1i(loc, desc->binding);
+             break;
+         }
+         case PL_DESC_BUF_UNIFORM: {
+--- a/src/opengl/gpu_tex.c
++++ b/src/opengl/gpu_tex.c
+@@ -359,8 +359,15 @@
+                            tex_gl->format, tex_gl->type, params->initial_data);
+             break;
+         case 2:
+-            gl->TexImage2D(tex_gl->target, 0, tex_gl->iformat, params->w, params->h,
+-                           0, tex_gl->format, tex_gl->type, params->initial_data);
++            if (gpu->glsl.gles && params->storable) {
++                gl->TexStorage2D(tex_gl->target, 1, tex_gl->iformat, params->w, params->h);
++                if (params->initial_data)
++                    gl->TexSubImage2D(tex_gl->target, 0, 0, 0, params->w, params->h,
++                                      tex_gl->format, tex_gl->type, params->initial_data);
++            } else {
++                gl->TexImage2D(tex_gl->target, 0, tex_gl->iformat, params->w, params->h,
++                               0, tex_gl->format, tex_gl->type, params->initial_data);
++            }
+             break;
+         case 3:
+             gl->TexImage3D(tex_gl->target, 0, tex_gl->iformat, params->w, params->h,
+--- a/src/dispatch.c
++++ b/src/dispatch.c
+@@ -478,7 +478,7 @@
+ 
+             // Vulkan requires explicit bindings; GL always sets the
+             // bindings manually to avoid relying on the user doing so
+-            if (gpu->glsl.vulkan) {
++            if (gpu->glsl.vulkan || gpu->glsl.gles) {
+                 ADD(pre, "layout(binding=%d) uniform %c%s "$";\n",
+                     desc->binding, prefix, type, id);
+             } else if (gpu->glsl.gles && prefix != ' ') {
+@@ -501,7 +501,7 @@
+             pl_tex tex = sd->binding.object;
+             const char *format = tex->params.format->glsl_format;
+             int dims = pl_tex_params_dimension(tex->params);
+-            if (gpu->glsl.vulkan) {
++            if (gpu->glsl.vulkan || gpu->glsl.gles) {
+                 if (format) {
+                     ADD(pre, "layout(binding=%d, %s) ", desc->binding, format);
+                 } else {
