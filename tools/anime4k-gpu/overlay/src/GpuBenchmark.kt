@@ -5,8 +5,6 @@ import android.opengl.EGL14 as EGL
 import android.opengl.EGLConfig
 import android.opengl.EGLExt
 import android.opengl.GLES20 as GL
-import android.os.Build
-import android.os.Process
 import android.util.Log
 import android.util.Size
 import androidx.annotation.OptIn
@@ -28,9 +26,7 @@ import java.util.concurrent.Executors
 import kotlin.math.ceil
 
 internal object GpuBenchmark {
-    val available: Boolean
-        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Process.is64Bit() &&
-            "arm64-v8a" in Build.SUPPORTED_ABIS
+    val available: Boolean get() = OverlayTrial.available
 
     private val lock = Mutex()
 

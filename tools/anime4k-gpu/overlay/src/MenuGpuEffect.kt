@@ -15,7 +15,13 @@ import java.util.Locale
 import kotlin.math.ceil
 
 internal object PlaceboNative {
-    init { System.loadLibrary("overlay_gpu") }
+    val available = try {
+        System.loadLibrary("overlay_gpu")
+        true
+    } catch (_: UnsatisfiedLinkError) {
+        false
+    }
+
     external fun create(sources: Array<String>): Long
     external fun draw(handle: Long, texture: Int, width: Int, height: Int, fbo: Int, targetWidth: Int, targetHeight: Int): Boolean
     external fun release(handle: Long)

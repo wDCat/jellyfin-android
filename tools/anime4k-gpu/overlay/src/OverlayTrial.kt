@@ -19,10 +19,10 @@ internal object OverlayTrial {
     fun supportsSize(width: Int, height: Int) =
         (width == 960 && height == 540) || (width == 1920 && height == 1080)
 
-    const val available = true
+    val available: Boolean get() = PlaceboNative.available
 
     fun ffmpeg(context: Context, renderer: Renderer, firstFrame: (Surface, Long) -> Unit): Renderer =
-        EnhancedFfmpegRenderer(context, renderer, firstFrame)
+        if (available) EnhancedFfmpegRenderer(context, renderer, firstFrame) else renderer
 
     fun apply(
         player: ExoPlayer, json: String, useNpu: Boolean, ignoreNpuBudget: Boolean = false, fixture: Boolean = false,
@@ -48,6 +48,7 @@ internal object OverlayTrial {
     }
 
     fun configure(context: Context, videoId: String, player: ExoPlayer) {
+        if (!available) return
         val bench = context is OverlayTrialActivity
         // Prime Media3 before prepare. Ordinary playback follows the Web menu.
         player.setVideoEffects(emptyList())

@@ -28,6 +28,11 @@
 # Keep AndroidX ComponentFactory
 -keep class androidx.core.app.CoreComponentFactory { *; }
 
+# Media3 1.8.0 creates this builder via reflection in PlaybackVideoGraphWrapper.
+-keepclassmembers class androidx.media3.effect.DefaultVideoFrameProcessor$Factory$Builder {
+  public <init>();
+}
+
 # Assume SDK >= 31 to remove unnecessary compat code
 -assumevalues class android.os.Build$VERSION {
   int SDK_INT return 31..2147483647;

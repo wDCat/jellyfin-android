@@ -1,14 +1,30 @@
-# GPU enhancement in the Android overlay
+# GPU and NPU enhancement in the Android overlay
 
-In the arm64 trial APK, open the Web player's existing picture enhancement menu. Select a mode, tier, and output size or use a saved custom chain. The same per-series settings and optional CRT and monochrome controls apply. Switching effects during playback keeps the video in the ExoPlayer overlay. Turning enhancement off removes the effect chain.
+On arm64 Android, select the Web player, enable the native video overlay in client settings, and open the picture enhancement menu during playback in the compatible Jellyfin Web client. Select a mode, tier, and output size or use a saved custom chain. On devices that expose the Snapdragon Hexagon accelerator through NNAPI, enable **Use Snapdragon NPU** in the same client settings to try it for supported models. GPU processing handles unsupported models and chains that exceed the NPU frame budget.
 
 Web resolves the current preset to effect IDs and parameters. Android loads the corresponding bundled GPU shaders, creates the GLES passes, and reports activation after rendering a frame. A revision and the proxied video's ID associate each status update with its request. MediaCodec and FFmpeg software video use the same GPU model catalog. For SDR software decoding, Media3 owns the output surface while the menu switches chains, including the empty chain. HDR bypasses enhancement. Older clients without the bridge retain the existing browser playback policy.
 
-The catalog is generated from the adjacent Web checkout's NijiLucid descriptor registry and 76 pinned GLSL sources. The build verifies the source hashes. Standalone Anime4K CNNx2S at the tested 2× sizes uses the specialized four-pass GLES implementation; other models and chains use the libplacebo OpenGL backend. The trial APK includes the shader notices and the source, license, build script and GLES patch for the linked libplacebo version.
+The GPU catalog is generated from the adjacent Web checkout's NijiLucid descriptor registry and 76 pinned GLSL sources. The generator verifies the source hashes. Standalone Anime4K CNNx2S at the tested 2× sizes uses the specialized four-pass GLES implementation. Other models and chains use the libplacebo OpenGL backend. The APK includes the shader notices and the source, license, build script and GLES patch for the linked libplacebo version.
 
 The original Anime4K weights are from [bloc97/Anime4K](https://github.com/bloc97/Anime4K) (MIT, copyright 2019–2021 bloc97). Retain its [license](https://github.com/bloc97/Anime4K/blob/master/LICENSE) when distributing the generated shaders or weights.
 
-Build the proprietary debug trial with the matching Web checkout and its Node dependencies installed. Set `ANDROID_NDK_HOME` to the Linux NDK 29. The native build uses Meson, Ninja and patch. The first build downloads pinned dependencies.
+`./gradlew assembleRelease` packages the bundled shaders, NPU graphs, and arm64 libraries in both release flavors. To update those files, use the matching adjacent Jellyfin Web checkout with `esbuild` installed, Python with NumPy, Meson, Ninja, patch and Android NDK 29 on Linux. From the Android repository root, set `ANDROID_NDK_HOME` and run:
+
+```sh
+overlay=tools/anime4k-gpu/overlay
+web=../jellyfin-web
+assets=app/src/main/assets
+libs=app/src/main/jniLibs
+python3 -B "$overlay/gpu_shaders.py" "$web/src/lib/nijilucid/engines/anime4k/pipelines/upscale/CNNx2S/shaders" "$assets/anime4k"
+node "$overlay/model-assets.cjs" "$web" "$assets"
+python3 -B tools/anime4k-gpu/npu/extract.py "$assets/npu"
+bash "$overlay/build-renderer.sh" "$libs" build/overlay-placebo "$assets"
+bash "$overlay/build-npu.sh" "$libs"
+"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded \
+  "$libs/arm64-v8a/libplacebo.so" "$libs/arm64-v8a/liboverlay_gpu.so" "$libs/arm64-v8a/liboverlay_npu.so"
+```
+
+The debug APK can also include the ADB fixture activity:
 
 ```sh
 ./gradlew :app:assembleProprietaryDebug -Panime4kTrial

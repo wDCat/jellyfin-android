@@ -38,6 +38,7 @@ import org.jellyfin.mobile.player.videoproxy.GpuBenchmark
 import org.jellyfin.mobile.player.videoproxy.NpuBenchmarkPreset
 import org.jellyfin.mobile.player.videoproxy.NpuBenchmarkTier
 import org.jellyfin.mobile.player.videoproxy.NpuRuntime
+import org.jellyfin.mobile.player.videoproxy.OverlayTrial
 import org.jellyfin.mobile.settings.SettingsList.Option
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.isPackageInstalled
@@ -315,7 +316,7 @@ class SettingsFragment : Fragment() {
 
     private fun SettingsList.addEnhancementSettings(videoProxyEnabled: () -> Boolean) {
         val npuAvailable by lazy { NpuRuntime.available }
-        val npuSettingsVisible = { videoProxyEnabled() && npuAvailable }
+        val npuSettingsVisible = { videoProxyEnabled() && OverlayTrial.available && npuAvailable }
         toggle(
             Constants.PREF_NPU_ENHANCEMENT,
             R.string.pref_npu_enhancement_title,
