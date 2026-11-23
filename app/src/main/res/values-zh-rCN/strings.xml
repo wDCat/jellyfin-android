@@ -191,6 +191,7 @@
     <string name="custom_hosts_proxy_failed">无法为 WebView 应用自定义 hosts，请检查 hosts 设置和 WebView 版本。</string>
     <string name="pref_npu_enhancement_title">使用骁龙 NPU</string>
     <string name="pref_npu_enhancement_summary">可转换的增强模型走 Hexagon NPU，滤镜仍在 GPU。设备或模型不能跑时回退 GPU。</string>
+    <string name="pref_npu_enhancement_unavailable">未通过 NNAPI 检测到兼容的骁龙 NPU 驱动，画质增强将使用 GPU。</string>
     <string name="pref_npu_ignore_budget_title">忽略 NPU 帧预算</string>
     <string name="pref_npu_ignore_budget_summary">供测试使用。模型过慢时仍使用 NPU，播放可能卡顿。</string>
     <string name="pref_npu_bench_title">NPU 性能测试</string>

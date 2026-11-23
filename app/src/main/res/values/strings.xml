@@ -125,6 +125,7 @@
     <string name="pref_video_proxy_hardware_decoding_summary">Use hardware decoder when available, fall back to software decoder (FFmpeg) when disabled or unavailable</string>
     <string name="pref_npu_enhancement_title">Use Snapdragon NPU</string>
     <string name="pref_npu_enhancement_summary">Run convertible enhancement models on the Hexagon NPU. Filters stay on the GPU. Falls back to GPU if the model or device cannot run.</string>
+    <string name="pref_npu_enhancement_unavailable">No compatible Snapdragon NPU driver was detected through NNAPI. Picture enhancement uses the GPU.</string>
     <string name="pref_npu_ignore_budget_title">Ignore NPU frame budget</string>
     <string name="pref_npu_ignore_budget_summary">For testing. Keep using the NPU for slow models, which can cause playback stutter.</string>
     <string name="pref_npu_bench_title">NPU performance test</string>

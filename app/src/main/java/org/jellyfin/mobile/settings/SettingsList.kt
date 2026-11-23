@@ -99,6 +99,7 @@ internal class SettingsList(
         default: Boolean = false,
         visible: () -> Boolean = { true },
         enabled: () -> Boolean = { true },
+        @StringRes summaryDisabledRes: Int = 0,
         onChange: (Boolean) -> Unit = {},
     ) {
         val row = createRow(titleRes, group)
@@ -116,7 +117,12 @@ internal class SettingsList(
             toggle.isChecked = checked
             toggle.isEnabled = enabled()
             row.setEnabled(toggle.isEnabled)
-            row.setSummary(textOrNull(if (checked) summaryOnRes else summaryRes))
+            val summary = when {
+                !toggle.isEnabled && summaryDisabledRes != 0 -> summaryDisabledRes
+                checked -> summaryOnRes
+                else -> summaryRes
+            }
+            row.setSummary(textOrNull(summary))
         }
     }
 

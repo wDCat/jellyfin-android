@@ -316,12 +316,15 @@ class SettingsFragment : Fragment() {
 
     private fun SettingsList.addEnhancementSettings(videoProxyEnabled: () -> Boolean) {
         val npuAvailable by lazy { NpuRuntime.available }
-        val npuSettingsVisible = { videoProxyEnabled() && OverlayTrial.available && npuAvailable }
+        val enhancementSettingsVisible = { videoProxyEnabled() && OverlayTrial.available }
+        val npuSettingsVisible = { enhancementSettingsVisible() && npuAvailable }
         toggle(
             Constants.PREF_NPU_ENHANCEMENT,
             R.string.pref_npu_enhancement_title,
             summaryRes = R.string.pref_npu_enhancement_summary,
-            visible = npuSettingsVisible,
+            visible = enhancementSettingsVisible,
+            enabled = { npuAvailable },
+            summaryDisabledRes = R.string.pref_npu_enhancement_unavailable,
         )
         toggle(
             Constants.PREF_NPU_IGNORE_FRAME_BUDGET,
