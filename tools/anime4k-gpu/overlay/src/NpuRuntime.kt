@@ -38,7 +38,7 @@ import kotlin.math.roundToInt
 internal fun playbackFrameBudgetNs(fps: Float?) =
     (750_000_000.0 / (fps?.takeIf { it.isFinite() && it > 0f } ?: 24f)).toLong()
 
-/** Snapdragon Hexagon execution through the Qualcomm NNAPI qti-dsp device. */
+/** Snapdragon Hexagon execution through a Qualcomm NNAPI accelerator. */
 internal object NpuRuntime {
     private val libraryLoaded by lazy {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) false

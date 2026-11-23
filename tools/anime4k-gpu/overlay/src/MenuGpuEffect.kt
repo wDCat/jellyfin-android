@@ -250,7 +250,7 @@ internal class MenuGpuEffect(
                     }
                 }
                 stats = GpuFrameStats(
-                    if (npuPre == 0L && npuPost == 0L) "NNAPI qti-dsp" else "NNAPI qti-dsp + libplacebo · OpenGL ES",
+                    if (npuPre == 0L && npuPost == 0L) "NNAPI" else "NNAPI + libplacebo · OpenGL ES",
                     NpuRuntime.probe().optString("device"),
                     "${width}×$height → ${plan.width}×${plan.height}", layout.size, waitsForGpu, started, sourceFps,
                 )

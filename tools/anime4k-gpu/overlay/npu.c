@@ -81,19 +81,29 @@ static int check(int rc, const char *what) {
 static int prefer_device(ANeuralNetworksDevice **out, char *name, size_t name_cap) {
     uint32_t count = 0;
     if (!check(ANeuralNetworks_getDeviceCount(&count), "getDeviceCount")) return 0;
+    const char *selected_name = NULL;
     for (uint32_t i = 0; i < count; i++) {
         ANeuralNetworksDevice *dev = NULL;
         const char *dev_name = NULL;
         if (ANeuralNetworks_getDevice(i, &dev) != ANEURALNETWORKS_NO_ERROR) continue;
-        ANeuralNetworksDevice_getName(dev, &dev_name);
-        LOG("nnapi device %u %s", i, dev_name ? dev_name : "?");
-        if (dev_name && strcmp(dev_name, "qti-dsp") == 0) {
+        if (ANeuralNetworksDevice_getName(dev, &dev_name) != ANEURALNETWORKS_NO_ERROR || !dev_name) continue;
+        int32_t type = ANEURALNETWORKS_DEVICE_UNKNOWN;
+        ANeuralNetworksDevice_getType(dev, &type);
+        LOG("nnapi device %u %s (type %d)", i, dev_name, type);
+        if (strcmp(dev_name, "qti-dsp") == 0) {
             *out = dev;
-            snprintf(name, name_cap, "%s", dev_name);
-            return 1;
+            selected_name = dev_name;
+            break;
+        }
+        if (!selected_name && type == ANEURALNETWORKS_DEVICE_ACCELERATOR &&
+            (strcmp(dev_name, "qti-htp") == 0 || strcmp(dev_name, "qti-hta") == 0)) {
+            *out = dev;
+            selected_name = dev_name;
         }
     }
-    return 0;
+    if (!selected_name) return 0;
+    snprintf(name, name_cap, "%s", selected_name);
+    return 1;
 }
 
 static const float ACT_SCALE = 1.f / 16.f;
