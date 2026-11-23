@@ -35,6 +35,25 @@ for (const plugin of plugins) {
 const { deviceId, deviceName, appName, appVersion, webViewVersion } = JSON.parse(window.NativeInterface.getDeviceInformation());
 const codecCaps = JSON.parse(window.NativeInterface.getCodecCapabilities());
 
+function getClientSettingsColors() {
+    const root = document.documentElement;
+    if (root.getAttribute('data-theme') !== 'material3') return null;
+
+    const style = getComputedStyle(root);
+    const roles = [
+        'primary', 'on-primary', 'primary-container', 'on-primary-container',
+        'secondary', 'on-secondary', 'secondary-container', 'on-secondary-container',
+        'surface', 'surface-container-low', 'surface-container', 'surface-container-high', 'surface-container-highest',
+        'on-surface', 'on-surface-variant', 'outline', 'outline-variant'
+    ];
+    const colors = {};
+    for (const role of roles) {
+        const color = style.getPropertyValue('--md-sys-color-' + role).trim();
+        if (/^#[0-9a-f]{6}$/i.test(color)) colors[role] = color;
+    }
+    return colors.primary && colors.surface ? JSON.stringify(colors) : null;
+}
+
 window.NativeShell = {
     enableFullscreen() {
         window.NativeInterface.enableFullscreen();
@@ -73,7 +92,12 @@ window.NativeShell = {
     },
 
     openClientSettings() {
-        window.NativeInterface.openClientSettings();
+        const colors = getClientSettingsColors();
+        if (colors && typeof window.NativeInterface.openClientSettingsWithColors === 'function') {
+            window.NativeInterface.openClientSettingsWithColors(colors);
+        } else {
+            window.NativeInterface.openClientSettings();
+        }
     },
 
     selectServer() {

@@ -34,7 +34,6 @@ androidx-lifecycle = "2.9.4"
 androidx-constraintlayout = "2.2.2"
 google-material = "1.13.0"
 androidx-webkit = "1.14.0"
-modernandroidpreferences = "2.4.0-beta2"
 
 # Compose
 compose = "1.9.4"
@@ -109,7 +108,6 @@ androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-p
 google-material = { group = "com.google.android.material", name = "material", version.ref = "google-material" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "androidx-constraintlayout" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "androidx-webkit" }
-modernandroidpreferences = { group = "de.maxr1998", name = "modernandroidpreferences", version.ref = "modernandroidpreferences" }
 
 # Compose
 compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "compose" }

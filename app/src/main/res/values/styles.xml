@@ -17,7 +17,26 @@
     </style>
 
     <!-- Settings theme -->
-    <style name="AppTheme.Settings" />
+    <style name="AppTheme.Settings" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/settings_primary</item>
+        <item name="colorOnPrimary">@color/settings_on_primary</item>
+        <item name="colorPrimaryContainer">@color/settings_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/settings_on_primary_container</item>
+        <item name="colorSecondary">@color/settings_secondary</item>
+        <item name="colorOnSecondary">@color/settings_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/settings_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/settings_on_secondary_container</item>
+        <item name="colorSurface">@color/settings_surface</item>
+        <item name="colorSurfaceContainerLow">@color/settings_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/settings_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/settings_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/settings_surface_container_highest</item>
+        <item name="colorOnSurface">@color/settings_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/settings_on_surface_variant</item>
+        <item name="colorOutline">@color/settings_outline</item>
+        <item name="colorOutlineVariant">@color/settings_outline_variant</item>
+        <item name="android:colorBackground">?attr/colorSurface</item>
+    </style>
 
     <!-- Theme Overlays -->
     <style name="ThemeOverlay.App.BackButton" parent="">

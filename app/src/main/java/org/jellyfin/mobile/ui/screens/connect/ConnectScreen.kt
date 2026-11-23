@@ -50,7 +50,7 @@ fun ConnectScreen(
                 text = stringResource(R.string.view_downloads),
             )
             StyledTextButton(
-                onClick = { activityEventHandler.emit(ActivityEvent.OpenSettings) },
+                onClick = { activityEventHandler.emit(ActivityEvent.OpenSettings()) },
                 text = stringResource(R.string.activity_name_settings),
             )
         }

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.core.net.toUri
+import androidx.core.os.bundleOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -18,6 +19,7 @@ import org.jellyfin.mobile.downloads.DownloadsFragment
 import org.jellyfin.mobile.player.ui.PlayerFragment
 import org.jellyfin.mobile.player.ui.PlayerFullscreenHelper
 import org.jellyfin.mobile.settings.SettingsFragment
+import org.jellyfin.mobile.settings.WEB_SETTINGS_COLORS_ARG
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.extensions.addFragment
 import org.jellyfin.mobile.utils.requestDownload
@@ -102,8 +104,8 @@ class ActivityEventHandler(
                     bluetoothPermissionHelper.requestBluetoothPermissionIfNecessary()
                 }
             }
-            ActivityEvent.OpenSettings -> {
-                supportFragmentManager.addFragment<SettingsFragment>()
+            is ActivityEvent.OpenSettings -> {
+                supportFragmentManager.addFragment<SettingsFragment>(bundleOf(WEB_SETTINGS_COLORS_ARG to event.webColors))
             }
             ActivityEvent.SelectServer -> {
                 mainViewModel.resetServer()

@@ -181,7 +181,12 @@ class NativeInterface(private val context: Context) : KoinComponent {
 
     @JavascriptInterface
     fun openClientSettings() {
-        emitEvent(ActivityEvent.OpenSettings)
+        emitEvent(ActivityEvent.OpenSettings())
+    }
+
+    @JavascriptInterface
+    fun openClientSettingsWithColors(webColors: String?) {
+        emitEvent(ActivityEvent.OpenSettings(webColors?.takeIf { it.length <= MAX_SETTINGS_COLORS_LENGTH }))
     }
 
     @JavascriptInterface
@@ -202,5 +207,9 @@ class NativeInterface(private val context: Context) : KoinComponent {
     @Suppress("NOTHING_TO_INLINE")
     private inline fun emitEvent(event: ActivityEvent) {
         activityEventHandler.emit(event)
+    }
+
+    private companion object {
+        const val MAX_SETTINGS_COLORS_LENGTH = 1024
     }
 }
