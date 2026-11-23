@@ -7,7 +7,7 @@
 set -euo pipefail
 out=${1:?usage: build-placebo.sh OUTPUT_DIR [arm64-v8a]}
 abi=${2:-arm64-v8a}
-: "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME to Android NDK 29}"
+: "${ANDROID_NDK_HOME:=/home/dcat/Android/Sdk/ndk/29.0.14206865}"
 case "$abi" in
   arm64-v8a) triple=aarch64-linux-android; cpu_family=aarch64; cpu=aarch64 ;;
   *) echo "Unsupported ABI: $abi (only arm64-v8a is currently validated)" >&2; exit 2 ;;

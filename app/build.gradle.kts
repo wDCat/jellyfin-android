@@ -30,6 +30,9 @@ android {
     namespace = "org.jellyfin.mobile"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+    if (providers.gradleProperty("anime4kTrial").isPresent) {
+        sourceSets["debug"].manifest.srcFile(rootProject.file("tools/anime4k-gpu/overlay/AndroidManifest.xml"))
+    }
     defaultConfig {
         applicationId = "org.jellyfin.mobile.custom"
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -152,7 +155,24 @@ if (overlayTrial) {
     }
     android.sourceSets["debug"].assets.srcDir(modelAssets.get().asFile)
     android.sourceSets["debug"].assets.srcDir(gpuAssets.get().asFile)
-    tasks.matching { it.name.matches(Regex("merge.*DebugAssets")) }.configureEach { dependsOn(buildGpuShaders, buildModelAssets) }
+    val npuAssets = layout.buildDirectory.dir("generated/anime4k/npu")
+    val npuJni = layout.buildDirectory.dir("generated/anime4k/npu-jni")
+    val buildNpuGraphs by tasks.registering(Exec::class) {
+        val extractor = trialRoot.resolve("../npu/extract.py")
+        inputs.file(extractor)
+        inputs.dir(webRoot.resolve("src/lib/nijilucid/engines"))
+        outputs.dir(npuAssets)
+        commandLine("python3", "-B", extractor, npuAssets.get().asFile.resolve("npu"))
+    }
+    val buildNpu by tasks.registering(Exec::class) {
+        inputs.files(trialRoot.resolve("build-npu.sh"), trialRoot.resolve("npu.c"))
+        outputs.dir(npuJni)
+        commandLine("bash", trialRoot.resolve("build-npu.sh"), npuJni.get().asFile)
+    }
+    android.sourceSets["debug"].assets.srcDir(npuAssets.get().asFile)
+    android.sourceSets["debug"].jniLibs.srcDir(npuJni.get().asFile)
+    tasks.matching { it.name.matches(Regex("merge.*DebugAssets")) }.configureEach { dependsOn(buildGpuShaders, buildModelAssets, buildNpuGraphs) }
+    tasks.matching { it.name.matches(Regex("merge.*DebugJniLibFolders")) }.configureEach { dependsOn(buildNpu) }
     val placeboSources = layout.buildDirectory.dir("generated/anime4k/placebo-assets")
     val buildNative by tasks.registering(Exec::class) {
         inputs.files(trialRoot.resolve("build-placebo.sh"), trialRoot.resolve("build-renderer.sh"), trialRoot.resolve("placebo.c"), trialRoot.resolve("libplacebo-gles.patch"))

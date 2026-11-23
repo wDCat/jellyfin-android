@@ -13,7 +13,7 @@ import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.sdk.model.api.MediaSegmentType
 
 class AppPreferences(context: Context) {
-    private val sharedPreferences: SharedPreferences =
+    internal val sharedPreferences: SharedPreferences =
         context.getSharedPreferences("${context.packageName}_preferences", Context.MODE_PRIVATE)
 
     init {
@@ -148,8 +148,9 @@ class AppPreferences(context: Context) {
         get() = sharedPreferences.getBoolean(Constants.PREF_MUSIC_NOTIFICATION_ALWAYS_DISMISSIBLE, false)
 
     @VideoPlayerType
-    val videoPlayerType: String
-        get() = sharedPreferences.getString(Constants.PREF_VIDEO_PLAYER_TYPE, VideoPlayerType.EXO_PLAYER)!!
+    var videoPlayerType: String
+        get() = sharedPreferences.getString(Constants.PREF_VIDEO_PLAYER_TYPE, null) ?: VideoPlayerType.WEB_PLAYER
+        set(value) = sharedPreferences.edit { putString(Constants.PREF_VIDEO_PLAYER_TYPE, value) }
 
     val exoPlayerStartLandscapeVideoInLandscape: Boolean
         get() = sharedPreferences.getBoolean(Constants.PREF_EXOPLAYER_START_LANDSCAPE_VIDEO_IN_LANDSCAPE, false)
@@ -193,6 +194,12 @@ class AppPreferences(context: Context) {
 
     val videoProxyHardwareDecoding: Boolean
         get() = sharedPreferences.getBoolean(Constants.PREF_VIDEO_PROXY_HARDWARE_DECODING, true)
+
+    val npuEnhancementEnabled: Boolean
+        get() = sharedPreferences.getBoolean(Constants.PREF_NPU_ENHANCEMENT, false)
+
+    val npuIgnoreFrameBudget: Boolean
+        get() = sharedPreferences.getBoolean(Constants.PREF_NPU_IGNORE_FRAME_BUDGET, false)
 
     var videoProxyVolume: Int
         get() = sharedPreferences.getInt(Constants.PREF_VIDEO_PROXY_VOLUME, DEFAULT_VIDEO_PROXY_VOLUME)

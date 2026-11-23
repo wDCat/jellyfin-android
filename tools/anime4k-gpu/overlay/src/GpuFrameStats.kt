@@ -20,8 +20,9 @@ internal class GpuFrameStats(
     private var total = 0L
     private var since = 0L
     private var firstFrameMs = 0.0
+    private var lastFps = 0
 
-    fun record(startNs: Long, endNs: Long, report: EffectStatus) {
+    fun record(startNs: Long, endNs: Long, refreshMetadata: Boolean = false, report: EffectStatus) {
         total++
         if (total == 1L) {
             firstFrameMs = (endNs - configureStartedNs) / 1e6
@@ -33,7 +34,10 @@ internal class GpuFrameStats(
         if (count == samples.size) samples = samples.copyOf(samples.size * 2)
         samples[count++] = endNs - startNs
         val interval = endNs - since
-        if (interval < 1_000_000_000L) return
+        if (interval < 1_000_000_000L) {
+            if (refreshMetadata) report("active", null, lastFps, metadata())
+            return
+        }
 
         samples.sort(0, count)
         val fps = count * 1e9 / interval
@@ -47,7 +51,8 @@ internal class GpuFrameStats(
                 put("overBudget", (0 until count).count { samples[it] > budgetMs * 1e6 })
             }
         }
-        report("active", null, fps.roundToInt(), details)
+        lastFps = fps.roundToInt()
+        report("active", null, lastFps, details)
         count = 0
         since = endNs
     }

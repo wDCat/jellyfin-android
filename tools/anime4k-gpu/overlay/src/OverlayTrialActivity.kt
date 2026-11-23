@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Bundle
 import android.util.Log
+import android.util.Size
 import android.view.Gravity
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -13,11 +14,15 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import org.jellyfin.mobile.R
 import org.jellyfin.mobile.app.ApiClientController
+import org.jellyfin.mobile.settings.npuDialogBuilder
+import org.jellyfin.mobile.settings.runWithNpuProgress
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.videosApi
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
-import kotlinx.coroutines.launch
 import org.jellyfin.mobile.webapp.WebappFunctionChannel
 import org.koin.android.ext.android.get
 import java.io.File
@@ -50,6 +55,45 @@ class OverlayTrialActivity : ComponentActivity() {
         viewport.addView(subs)
         viewport.addView(web)
         setContentView(frame)
+        val gpuBenchmark = intent.getBooleanExtra("gpuBench", false)
+        if (gpuBenchmark || intent.getBooleanExtra("npuBench", false)) {
+            val logLabel = if (gpuBenchmark) "gpuBench" else "npuBench"
+            lifecycleScope.launch {
+                try {
+                    val title = if (gpuBenchmark) R.string.pref_gpu_bench_title else R.string.pref_npu_bench_title
+                    val builder = npuDialogBuilder(this@OverlayTrialActivity).setTitle(title)
+                    val tier = NpuBenchmarkTier.entries.firstOrNull { it.id == intent.getStringExtra("tier") } ?: NpuBenchmarkTier.FAST
+                    val preset = intent.getStringExtra("preset")?.let { NpuBenchmarkPreset(it, tier) }
+                    val targetWidth = intent.getIntExtra("targetWidth", 0)
+                    val targetHeight = intent.getIntExtra("targetHeight", 0)
+                    val presetOutput = if (targetWidth in 16..3840 && targetHeight in 16..2160) Size(targetWidth, targetHeight) else null
+                    val report = runWithNpuProgress(
+                        builder,
+                        initialPhase = if (gpuBenchmark) R.string.gpu_bench_preparing else R.string.npu_bench_compiling,
+                    ) { onProgress ->
+                        val benchmark = if (gpuBenchmark) GpuBenchmark::benchmark else NpuRuntime::benchmark
+                        benchmark(
+                            applicationContext, intent.getStringExtra("model"),
+                            intent.getIntExtra("width", 960), intent.getIntExtra("height", 540),
+                            intent.getIntExtra("samples", 3),
+                            intent.getFloatExtra("fps", 24f),
+                            preset,
+                            presetOutput,
+                        ) { completed, total ->
+                            Log.i(OverlayTrial.TAG, "${logLabel}Progress ${completed ?: "compiling"}/$total")
+                            onProgress(completed, total)
+                        }
+                    }
+                    Log.i(OverlayTrial.TAG, "$logLabel\n$report")
+                } catch (cancelled: CancellationException) {
+                    Log.i(OverlayTrial.TAG, "$logLabel cancelled")
+                    throw cancelled
+                } finally {
+                    finish()
+                }
+            }
+            return
+        }
         window.insetsController?.hide(WindowInsets.Type.systemBars())
         val callbacks = WebappFunctionChannel()
         manager = VideoOverlayManager(this, get(), callbacks, lifecycleScope, get(), get(), get(), get()) {}
@@ -83,8 +127,8 @@ class OverlayTrialActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        manager.release()
-        web.destroy()
+        if (::manager.isInitialized) manager.release()
+        if (::web.isInitialized) web.destroy()
         super.onDestroy()
     }
 }

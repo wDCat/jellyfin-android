@@ -1,5 +1,6 @@
 package org.jellyfin.mobile.player.videoproxy
 
+import android.app.Activity
 import android.content.Context
 import org.json.JSONObject
 import android.net.Uri
@@ -139,6 +140,10 @@ class VideoProxyPlayer(
     private val volumeProcessor = VideoProxyVolumeProcessor()
     private var player: ExoPlayer? = null
     private val performance = VideoProxyPerformance()
+    private class EnhancementSample {
+        @Volatile var npu: JSONObject? = null
+    }
+    @Volatile private var enhancementSample = EnhancementSample()
     private val downloadSpeedMeter = VideoProxyDownloadSpeedMeter(DefaultBandwidthMeter.getSingletonInstance(context))
     private var surfaceView: SurfaceView? = null
     private var subtitleView: SubtitleView? = null
@@ -584,9 +589,22 @@ class VideoProxyPlayer(
         }
     }
 
-    fun setEnhancement(plan: String, status: (String, String?, Int, JSONObject?) -> Unit) {
-        player?.let { OverlayTrial.apply(it, plan, status) }
+    fun setEnhancement(
+        plan: String, useNpu: Boolean, ignoreNpuBudget: Boolean, status: (String, String?, Int, JSONObject?) -> Unit,
+    ) {
+        val sample = EnhancementSample()
+        enhancementSample = sample
+        player?.let {
+            OverlayTrial.apply(it, plan, useNpu, ignoreNpuBudget, compilationActivity = context as? Activity) {
+                    state, reason, fps, diagnostics ->
+                if (enhancementSample !== sample) return@apply
+                sample.npu = diagnostics?.optJSONObject("npu")
+                status(state, reason, fps, diagnostics)
+            }
+        }
     }
+
+    fun npuPlaybackInfo(): JSONObject? = enhancementSample.npu
 
     fun resetPerformanceSubscription(enabled: Boolean) = performance.resetSubscription(enabled)
 

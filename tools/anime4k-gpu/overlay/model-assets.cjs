@@ -45,6 +45,15 @@ async function main() {
         catalog[model.id] = { file, scale: model.dimensionBehavior.scale ?? 1 };
     }
     fs.writeFileSync(path.join(out, 'catalog.json'), JSON.stringify(catalog));
+    const anime4kModes = ['A', 'B', 'C', 'A+A', 'B+B', 'C+A'];
+    const tiers = ['performance', 'balanced', 'quality', 'ultra'];
+    const presets = Object.fromEntries(anime4kModes.map(mode => [
+        mode,
+        Object.fromEntries(tiers.map(tier => [
+            tier, api.resolvePresetEffects('anime4k', mode, tier).map(effect => effect.id)
+        ]))
+    ]));
+    fs.writeFileSync(path.join(out, 'presets.json'), JSON.stringify(presets));
     fs.writeFileSync(path.join(out, 'crt.json'), JSON.stringify(api.CRT_CONTROLS));
     fs.writeFileSync(path.join(out, 'crt.glsl'), api.crtShaderSource(
         Object.fromEntries(Object.keys(api.CRT_CONTROLS).map(k => [k, '@'+k+'@'])), { width:'@w@',height:'@h@' }));

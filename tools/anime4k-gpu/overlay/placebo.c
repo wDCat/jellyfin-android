@@ -84,6 +84,8 @@ JNIEXPORT jboolean JNICALL NATIVE(draw)(JNIEnv *env, jobject self, jlong handle,
 {
     struct renderer *r = (void *)(intptr_t)handle;
     pl_gpu gpu = r->gl->gpu;
+    // libplacebo queries GLES read formats while wrapping the input texture.
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     pl_tex input = pl_opengl_wrap(gpu, pl_opengl_wrap_params(.texture = texture, .width = width,
         .height = height, .target = GL_TEXTURE_2D, .iformat = GL_RGBA8));
     pl_tex output = pl_opengl_wrap(gpu, pl_opengl_wrap_params(.framebuffer = fbo, .width = out_w, .height = out_h));

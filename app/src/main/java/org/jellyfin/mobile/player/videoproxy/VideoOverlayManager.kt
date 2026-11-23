@@ -60,14 +60,20 @@ class VideoOverlayManager(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val resolutionJobs = mutableMapOf<String, Job>()
+    private val enhancementRequests = mutableMapOf<String, VideoProxyEvent.SetEnhancement>()
     private val fullscreenVideos = mutableSetOf<String>()
     private var eventJob: Job? = null
     private var released = false
     private var volumeDialog: AlertDialog? = null
-    private val volumePreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (!released && key == Constants.PREF_VIDEO_PROXY_VOLUME) {
-            val volume = appPreferences.videoProxyVolume
-            players.values.forEach { it.setIndependentVolume(volume) }
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (!released) when (key) {
+            Constants.PREF_VIDEO_PROXY_VOLUME -> {
+                val volume = appPreferences.videoProxyVolume
+                players.values.forEach { it.setIndependentVolume(volume) }
+            }
+            Constants.PREF_NPU_ENHANCEMENT, Constants.PREF_NPU_IGNORE_FRAME_BUDGET ->
+                enhancementRequests.values.forEach(::applyEnhancement)
+            else -> Unit
         }
     }
     private var overlayContainer: FrameLayout? = null
@@ -127,7 +133,7 @@ class VideoOverlayManager(
         this.overlayContainer = container
         this.subtitleContainer = subtitleContainer
         this.webView = webView
-        appPreferences.registerListener(volumePreferenceListener)
+        appPreferences.registerListener(preferenceListener)
         container.addOnLayoutChangeListener(layoutChangeListener)
         webView.addOnLayoutChangeListener(layoutChangeListener)
         
@@ -151,13 +157,11 @@ class VideoOverlayManager(
         if (released) return
         when (event) {
             VideoProxyEvent.ShowVolumeControl -> showVolumeControl()
-            is VideoProxyEvent.SetEnhancement -> players[event.videoId]?.setEnhancement(event.plan) { state, reason, fps, diagnostics ->
-                mainHandler.post {
-                    if (!released && players.containsKey(event.videoId)) {
-                        callJavaScript("onEnhancement", event.videoId, event.revision, state, reason, fps, diagnostics)
-                    }
-                }
-            } ?: Unit
+            is VideoProxyEvent.SetEnhancement -> {
+                if (event.plan.isEmpty()) enhancementRequests.remove(event.videoId)
+                else if (event.videoId in players.keys) enhancementRequests[event.videoId] = event
+                applyEnhancement(event)
+            }
             is VideoProxyEvent.VideoCreated -> createVideoOverlay(event.videoId)
             is VideoProxyEvent.VideoDestroyed -> destroyVideoOverlay(event.videoId)
             is VideoProxyEvent.SetSource -> setVideoSource(event.videoId, event.src)
@@ -182,6 +186,18 @@ class VideoOverlayManager(
      * This method runs on the main thread (called from lifecycleScope event handler),
      * so we can safely create views directly without mainHandler.post.
      */
+    private fun applyEnhancement(event: VideoProxyEvent.SetEnhancement) {
+        val player = players[event.videoId] ?: return
+        player.setEnhancement(event.plan, appPreferences.npuEnhancementEnabled, appPreferences.npuIgnoreFrameBudget) {
+                state, reason, fps, diagnostics ->
+            mainHandler.post {
+                if (!released && players[event.videoId] === player && enhancementRequests[event.videoId] === event) {
+                    callJavaScript("onEnhancement", event.videoId, event.revision, state, reason, fps, diagnostics)
+                }
+            }
+        }
+    }
+
     private fun createVideoOverlay(videoId: String) {
         Timber.d("Creating video overlay for $videoId (existing players: ${players.size})")
 
@@ -267,6 +283,7 @@ class VideoOverlayManager(
      * Destroy a video overlay.
      */
     private fun destroyVideoOverlay(videoId: String) {
+        enhancementRequests.remove(videoId)
         Timber.d("Destroying video overlay for $videoId")
 
         resolutionJobs.remove(videoId)?.cancel()
@@ -757,7 +774,8 @@ class VideoOverlayManager(
     fun release() {
         callJavaScript("onBitrateIndicator", null, null)
         released = true
-        appPreferences.unregisterListener(volumePreferenceListener)
+        appPreferences.unregisterListener(preferenceListener)
+        enhancementRequests.clear()
         volumeDialog?.dismiss()
         volumeDialog = null
         eventJob?.cancel()

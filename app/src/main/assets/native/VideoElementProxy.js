@@ -2380,6 +2380,36 @@
             parent.appendChild(item);
         }
 
+        function npuRows(npu) {
+            if (!npu) return [];
+            const statuses = {
+                awaitingConfirmation: label('Awaiting compilation approval · GPU', '等待确认是否编译 · GPU', '等待確認是否編譯 · GPU'),
+                compiling: label('Compiling NPU models · GPU', '正在编译 NPU 模型 · GPU', '正在編譯 NPU 模型 · GPU'),
+                checking: label('Checking frame budget · GPU', '正在检查帧预算 · GPU', '正在檢查幀預算 · GPU'),
+                cancelled: label('Compilation cancelled · GPU', '已取消 NPU 编译 · GPU', '已取消 NPU 編譯 · GPU'),
+                active: npu.ignoreBudget
+                    ? label('qti-dsp · Frame budget ignored', 'qti-dsp · 已忽略帧预算', 'qti-dsp · 已略過幀預算')
+                    : 'qti-dsp',
+                overBudget: label('Over frame budget · GPU', '超出帧预算 · GPU', '超出幀預算 · GPU'),
+                unavailable: label('Unavailable for this chain · GPU', '此增强链无法使用 NPU · GPU', '此增強鏈無法使用 NPU · GPU'),
+                failed: label('Execution failed · GPU', 'NPU 运行失败 · GPU', 'NPU 執行失敗 · GPU')
+            };
+            const rows = [{ label: 'NPU', value: statuses[npu.status] ?? '—' }];
+            for (const model of npu.models || []) {
+                const groups = [];
+                model.operations.forEach((name, index) => {
+                    const last = groups[groups.length - 1];
+                    if (last?.name === name) last.end = index + 1;
+                    else groups.push({ name, start: index + 1, end: index + 1 });
+                });
+                rows.push({
+                    label: `NPU · ${model.id}`,
+                    value: groups.map(({ name, start, end }) => `${start === end ? start : `${start}–${end}`} ${name}`).join(' · ')
+                });
+            }
+            return rows;
+        }
+
         function playbackRows(info) {
             const makeRow = (label, value) => ({ label, value: String(value ?? '') });
             return [
@@ -2395,6 +2425,7 @@
                 makeRow(label('Surface size', '渲染尺寸'), info.surfaceSize),
                 makeRow(label('Rendered / dropped frames', '已渲染 / 丢弃帧', '已渲染 / 丟棄幀'),
                     `${info.renderedFrames} / ${info.droppedFrames}`),
+                ...npuRows(info.npu),
                 makeRow(label('Audio decoder', '音频解码器', '音訊解碼器'), info.audioDecoderName),
                 makeRow(label('Audio format', '音频格式', '音訊格式'), info.audioFormat),
                 makeRow(label('Audio bitrate', '音频码率', '音訊位元率'), info.audioBitrate),

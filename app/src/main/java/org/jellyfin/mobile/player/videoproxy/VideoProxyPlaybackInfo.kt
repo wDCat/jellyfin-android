@@ -102,6 +102,7 @@ class VideoProxyPlaybackInfoReporter(
         val sampledPlayers = if (batch.videoId.isEmpty()) players.values else listOfNotNull(players[batch.videoId])
         val samples = sampledPlayers.map { player ->
             player.getDebugInfo().toPlaybackInfoJson().apply {
+                player.npuPlaybackInfo()?.let { put("npu", it) }
                 // Legacy diagnostics do not need performance samples.
                 if (batch.collectPerformance && batch.videoId.isNotEmpty()) {
                     player.samplePerformance()?.let { put("performance", it) }

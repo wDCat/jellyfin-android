@@ -1,5 +1,6 @@
 package org.jellyfin.mobile.player.videoproxy
 
+import android.app.Activity
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,13 +24,19 @@ internal object OverlayTrial {
     fun ffmpeg(context: Context, renderer: Renderer, firstFrame: (Surface, Long) -> Unit): Renderer =
         EnhancedFfmpegRenderer(context, renderer, firstFrame)
 
-    fun apply(player: ExoPlayer, json: String, status: EffectStatus) {
+    fun apply(
+        player: ExoPlayer, json: String, useNpu: Boolean, ignoreNpuBudget: Boolean = false, fixture: Boolean = false,
+        compilationActivity: Activity? = null, status: EffectStatus,
+    ) {
         if (json.isEmpty()) {
             player.setVideoEffects(emptyList())
             return
         }
         try {
-            player.setVideoEffects(listOf(MenuGpuEffect(MenuPlan(JSONObject(json)), player.videoFormat?.frameRate, status)))
+            val plan = JSONObject(json).put("accelerator", if (useNpu) "npu" else "gpu")
+            player.setVideoEffects(listOf(MenuGpuEffect(
+                MenuPlan(plan), player.videoFormat?.frameRate, fixture, ignoreNpuBudget, compilationActivity, status,
+            )))
         } catch (e: Exception) {
             player.setVideoEffects(emptyList())
             status("error", "EnhancementModeInvalid", 0, null)
@@ -46,11 +53,26 @@ internal object OverlayTrial {
         player.setVideoEffects(emptyList())
         if (context is OverlayTrialActivity && context.intent.getBooleanExtra("hybrid", true)) {
             val model = context.intent.getStringExtra("model") ?: "anime4k/Upscale/CNNx2S"
+            val accelerator = context.intent.getStringExtra("accelerator") ?: "gpu"
             val width = if (context.intent.getBooleanExtra("catalogCheck", false)) 128 else if (context.clip == null) 960 else 1920
             val height = width * 9 / 16
-            val json = JSONObject().put("effects", JSONArray().put(JSONObject().put("id", model)))
+            val anime4kA = context.intent.getBooleanExtra("anime4kA", false)
+            val ids = if (anime4kA) {
+                GpuBenchmark.presetEffects(context, NpuBenchmarkPreset("A", NpuBenchmarkTier.FAST))
+            } else listOf(model)
+            val effects = JSONArray(ids.map { JSONObject().put("id", it) })
+            context.intent.getStringExtra("postFilter")?.let { effects.put(JSONObject().put("id", it)) }
+            val json = JSONObject().put("effects", effects)
                 .put("target", JSONObject().put("width", width*2).put("height", height*2))
-            apply(player, json.toString()) { state, reason, fps, _ -> Log.i(TAG, "model=$model state=$state reason=$reason fps=$fps") }
+            val ignoreNpuBudget = !context.intent.getBooleanExtra("npuRealtime", false) ||
+                context.intent.getBooleanExtra("ignoreNpuBudget", false)
+            val compilationActivity = context.takeIf { it.intent.getBooleanExtra("confirmNpuCompilation", false) }
+            apply(player, json.toString(), accelerator == "npu", ignoreNpuBudget, fixture = true,
+                compilationActivity = compilationActivity) {
+                    state, reason, fps, diag ->
+                val fixtureModel = if (anime4kA) "Anime4K A (performance)" else model
+                Log.i(TAG, "model=$fixtureModel accel=$accelerator state=$state reason=$reason fps=$fps diag=$diag")
+            }
         }
         if (!bench) return
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
