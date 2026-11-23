@@ -1,7 +1,6 @@
 package org.jellyfin.mobile.webapp
 
 import android.content.Intent
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Bundle
@@ -177,6 +176,14 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
 
         // Setup WebView
         webView.initialize()
+        viewLifecycleOwner.lifecycle.addObserver(
+            WebViewCompositorRecovery(
+                webView = webView,
+                videoProxyEnabled = appPreferences.videoProxyEnabled,
+                isOverlayCompositingActive = { videoOverlayManager?.isOverlayCompositingActive() == true },
+                applyCompositing = { visible -> updateVideoOverlayCompositing(webView, visible) },
+            ),
+        )
 
         webViewBinding!!.useDifferentServerButton.setOnClickListener {
             webView.removeCallbacks(timeoutRunnable)
@@ -225,7 +232,14 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
         // so the window composites translucent subtitle backgrounds over its SurfaceView.
         val format = if (visible) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE
         activity?.window?.setFormat(format)
-        val background = if (visible) Color.TRANSPARENT else webView.context.getColor(R.color.theme_background)
+        // Color.TRANSPARENT (0) lets Chromium drop the WebView layer after the GPU context
+        // is lost in the background. Alpha 1 is invisible, but keeps the layer so the page
+        // can composite over the SurfaceView again instead of showing the black underlay.
+        val background = if (visible) {
+            OVERLAY_WEB_VIEW_BACKGROUND
+        } else {
+            webView.context.getColor(R.color.theme_background)
+        }
         webView.setBackgroundColor(background)
     }
 
@@ -342,5 +356,9 @@ class WebViewFragment : Fragment(), BackPressInterceptor, JellyfinWebChromeClien
     override fun onShowFileChooser(intent: Intent, filePathCallback: ValueCallback<Array<Uri>>) {
         fileChooserCallback = filePathCallback
         fileChooserActivityLauncher.launch(intent)
+    }
+
+    private companion object {
+        const val OVERLAY_WEB_VIEW_BACKGROUND = 0x01000000
     }
 }

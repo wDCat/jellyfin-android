@@ -478,6 +478,9 @@ class VideoOverlayManager(
         onOverlayVisibilityChanged(visible)
     }
 
+    /** True while a SurfaceView is showing and the window must stay translucent. */
+    fun isOverlayCompositingActive(): Boolean = hasVisibleVideoOverlay
+
     /**
      * Set fullscreen mode.
      */
