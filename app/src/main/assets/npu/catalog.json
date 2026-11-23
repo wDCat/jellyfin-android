@@ -1,0 +1,357 @@
+{
+  "acnet/Upscale/ARNet/F8B8_BOX_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B8_BOX_HDN.bin",
+    "bytes": 64538,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B32": {
+    "file": "acnet_Upscale_ARNet_F8B32.bin",
+    "bytes": 246739,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B4_BOX": {
+    "file": "acnet_Upscale_F8B4_BOX.bin",
+    "bytes": 24864,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B16_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B16_HDN.bin",
+    "bytes": 125271,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B64_BOX_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B64_BOX_HDN.bin",
+    "bytes": 489691,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B32_BOX": {
+    "file": "acnet_Upscale_ARNet_F8B32_BOX.bin",
+    "bytes": 246743,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B4_BOX_HDN": {
+    "file": "acnet_Upscale_F8B4_BOX_HDN.bin",
+    "bytes": 24868,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B16": {
+    "file": "acnet_Upscale_ARNet_F8B16.bin",
+    "bytes": 125267,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B64": {
+    "file": "acnet_Upscale_ARNet_F8B64.bin",
+    "bytes": 489683,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B8_BOX": {
+    "file": "acnet_Upscale_F8B8_BOX.bin",
+    "bytes": 45440,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B8_BOX_HDN": {
+    "file": "acnet_Upscale_F8B8_BOX_HDN.bin",
+    "bytes": 45444,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B18_HDN": {
+    "file": "acnet_Upscale_F8B18_HDN.bin",
+    "bytes": 96881,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B16_BOX": {
+    "file": "acnet_Upscale_ARNet_F8B16_BOX.bin",
+    "bytes": 125271,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B16_BOX_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B16_BOX_HDN.bin",
+    "bytes": 125275,
+    "scale": 2
+  },
+  "acnet/Upscale/Legacy/HDN0": {
+    "file": "acnet_Upscale_Legacy_HDN0.bin",
+    "bytes": 21187,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B18_BOX": {
+    "file": "acnet_Upscale_F8B18_BOX.bin",
+    "bytes": 96881,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B8_HDN": {
+    "file": "acnet_Upscale_F8B8_HDN.bin",
+    "bytes": 45440,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B32_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B32_HDN.bin",
+    "bytes": 246743,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B4": {
+    "file": "acnet_Upscale_F8B4.bin",
+    "bytes": 24860,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B32_BOX_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B32_BOX_HDN.bin",
+    "bytes": 246747,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B64_BOX": {
+    "file": "acnet_Upscale_ARNet_F8B64_BOX.bin",
+    "bytes": 489687,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B8_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B8_HDN.bin",
+    "bytes": 64534,
+    "scale": 2
+  },
+  "acnet/Upscale/Legacy/HDN3": {
+    "file": "acnet_Upscale_Legacy_HDN3.bin",
+    "bytes": 21187,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B64_HDN": {
+    "file": "acnet_Upscale_ARNet_F8B64_HDN.bin",
+    "bytes": 489687,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B4_HDN": {
+    "file": "acnet_Upscale_F8B4_HDN.bin",
+    "bytes": 24864,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B8": {
+    "file": "acnet_Upscale_F8B8.bin",
+    "bytes": 45436,
+    "scale": 2
+  },
+  "acnet/Upscale/Legacy/GAN": {
+    "file": "acnet_Upscale_Legacy_GAN.bin",
+    "bytes": 21186,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B18": {
+    "file": "acnet_Upscale_F8B18.bin",
+    "bytes": 96877,
+    "scale": 2
+  },
+  "acnet/Upscale/Legacy/HDN1": {
+    "file": "acnet_Upscale_Legacy_HDN1.bin",
+    "bytes": 21187,
+    "scale": 2
+  },
+  "acnet/Upscale/F8B18_BOX_HDN": {
+    "file": "acnet_Upscale_F8B18_BOX_HDN.bin",
+    "bytes": 96885,
+    "scale": 2
+  },
+  "acnet/Upscale/Legacy/HDN2": {
+    "file": "acnet_Upscale_Legacy_HDN2.bin",
+    "bytes": 21187,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B8": {
+    "file": "acnet_Upscale_ARNet_F8B8.bin",
+    "bytes": 64530,
+    "scale": 2
+  },
+  "acnet/Upscale/ARNet/F8B8_BOX": {
+    "file": "acnet_Upscale_ARNet_F8B8_BOX.bin",
+    "bytes": 64534,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/4x32": {
+    "file": "cunny_Upscale_SOFT_4x32.bin",
+    "bytes": 157813,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/2x12": {
+    "file": "cunny_Upscale_DS_2x12.bin",
+    "bytes": 14323,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/Faster": {
+    "file": "cunny_Upscale_DS_Faster.bin",
+    "bytes": 7257,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/4x12": {
+    "file": "cunny_Upscale_DS_4x12.bin",
+    "bytes": 24931,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/Veryfast": {
+    "file": "cunny_Upscale_SOFT_Veryfast.bin",
+    "bytes": 5625,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/3x12": {
+    "file": "cunny_Upscale_SOFT_3x12.bin",
+    "bytes": 19629,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/Fast": {
+    "file": "cunny_Upscale_SOFT_Fast.bin",
+    "bytes": 12005,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/4x24": {
+    "file": "cunny_Upscale_SOFT_4x24.bin",
+    "bytes": 90837,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/4x24": {
+    "file": "cunny_Upscale_DS_4x24.bin",
+    "bytes": 90835,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/Faster": {
+    "file": "cunny_Upscale_SOFT_Faster.bin",
+    "bytes": 7367,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/2x12": {
+    "file": "cunny_Upscale_SOFT_2x12.bin",
+    "bytes": 14325,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/4x32": {
+    "file": "cunny_Upscale_DS_4x32.bin",
+    "bytes": 157811,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/4x16": {
+    "file": "cunny_Upscale_SOFT_4x16.bin",
+    "bytes": 42473,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/4x16": {
+    "file": "cunny_Upscale_DS_4x16.bin",
+    "bytes": 42471,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/Fast": {
+    "file": "cunny_Upscale_DS_Fast.bin",
+    "bytes": 11895,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/8x32": {
+    "file": "cunny_Upscale_DS_8x32.bin",
+    "bytes": 306067,
+    "scale": 2
+  },
+  "cunny/Upscale/DS/3x12": {
+    "file": "cunny_Upscale_DS_3x12.bin",
+    "bytes": 19627,
+    "scale": 2
+  },
+  "cunny/Upscale/SOFT/4x12": {
+    "file": "cunny_Upscale_SOFT_4x12.bin",
+    "bytes": 24933,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F16": {
+    "file": "artcnn_Upscale_C4F16.bin",
+    "bytes": 51466,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F16_DS": {
+    "file": "artcnn_Upscale_C4F16_DS.bin",
+    "bytes": 51469,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F16_DN": {
+    "file": "artcnn_Upscale_C4F16_DN.bin",
+    "bytes": 51469,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F32": {
+    "file": "artcnn_Upscale_C4F32.bin",
+    "bytes": 194698,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F32_DS": {
+    "file": "artcnn_Upscale_C4F32_DS.bin",
+    "bytes": 194701,
+    "scale": 2
+  },
+  "artcnn/Upscale/C4F32_DN": {
+    "file": "artcnn_Upscale_C4F32_DN.bin",
+    "bytes": 194701,
+    "scale": 2
+  },
+  "anime4k/Restore/CNNM": {
+    "file": "anime4k_Restore_CNNM.bin",
+    "bytes": 16510,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNS": {
+    "file": "anime4k_Restore_CNNS.bin",
+    "bytes": 7218,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNL": {
+    "file": "anime4k_Restore_CNNL.bin",
+    "bytes": 33062,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNSoftM": {
+    "file": "anime4k_Restore_CNNSoftM.bin",
+    "bytes": 16514,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNSoftVL": {
+    "file": "anime4k_Restore_CNNSoftVL.bin",
+    "bytes": 70207,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNVL": {
+    "file": "anime4k_Restore_CNNVL.bin",
+    "bytes": 70203,
+    "scale": 1
+  },
+  "anime4k/Restore/CNNUL": {
+    "file": "anime4k_Restore_CNNUL.bin",
+    "bytes": 152699,
+    "scale": 1
+  },
+  "anime4k/Restore/GANUUL": {
+    "file": "anime4k_Restore_GANUUL.bin",
+    "bytes": 119080,
+    "scale": 1
+  },
+  "anime4k/Upscale/CNNx2M": {
+    "file": "anime4k_Upscale_CNNx2M.bin",
+    "bytes": 16548,
+    "scale": 2
+  },
+  "anime4k/Upscale/CNNx2S": {
+    "file": "anime4k_Upscale_CNNx2S.bin",
+    "bytes": 7256,
+    "scale": 2
+  },
+  "anime4k/Upscale/CNNx2L": {
+    "file": "anime4k_Upscale_CNNx2L.bin",
+    "bytes": 28348,
+    "scale": 2
+  },
+  "anime4k/Upscale/CNNx2VL": {
+    "file": "anime4k_Upscale_CNNx2VL.bin",
+    "bytes": 64465,
+    "scale": 2
+  },
+  "anime4k/Upscale/DenoiseCNNx2VL": {
+    "file": "anime4k_Upscale_DenoiseCNNx2VL.bin",
+    "bytes": 64472,
+    "scale": 2
+  },
+  "anime4k/Upscale/CNNx2UL": {
+    "file": "anime4k_Upscale_CNNx2UL.bin",
+    "bytes": 135625,
+    "scale": 2
+  }
+}
