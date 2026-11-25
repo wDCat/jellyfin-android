@@ -63,6 +63,18 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".BookshelfActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_bookshelf"
+            android:label="@string/bookshelf_app_name"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.bookshelf">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <service
             android:name=".webapp.RemotePlayerService"

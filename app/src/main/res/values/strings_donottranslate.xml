@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name" translatable="false">Jellyfin for DCat</string>
     <string name="app_name_short" translatable="false">Jellyfin C</string>
+    <string name="bookshelf_app_name" translatable="false">JF Bookshelf for DCat</string>
 </resources>
