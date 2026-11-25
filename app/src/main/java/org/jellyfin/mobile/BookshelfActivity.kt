@@ -3,16 +3,22 @@ package org.jellyfin.mobile
 import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.Color
 import android.os.Bundle
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.activity.SystemBarStyle
 import androidx.activity.addCallback
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -26,7 +32,7 @@ import org.jellyfin.mobile.data.dao.ServerDao
 import org.jellyfin.mobile.network.HostsWebViewProxy
 import org.jellyfin.mobile.utils.Constants
 import org.jellyfin.mobile.utils.applyDefault
-import org.jellyfin.mobile.utils.applyWindowInsetsAsMargins
+import org.jellyfin.mobile.utils.getWebViewMajorVersion
 import org.jellyfin.mobile.utils.isWebViewSupported
 import org.jellyfin.mobile.utils.toast
 import org.jellyfin.sdk.api.client.ApiClient
@@ -51,6 +57,10 @@ class BookshelfActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
         if (!isWebViewSupported()) {
             toast(R.string.dialog_web_view_not_supported_message)
@@ -58,8 +68,8 @@ class BookshelfActivity : AppCompatActivity() {
             return
         }
         container = FrameLayout(this)
+        container.setBackgroundColor(ContextCompat.getColor(this, R.color.bookshelf_surface))
         setContentView(container)
-        container.applyWindowInsetsAsMargins()
         savedNavigation = savedInstanceState?.getBundle(NAVIGATION_STATE)
         onBackPressedDispatcher.addCallback(this) {
             val view = webView
@@ -115,6 +125,16 @@ class BookshelfActivity : AppCompatActivity() {
     }
 
     private fun WebView.configureBookshelf(webRoot: String) {
+        setBackgroundColor(ContextCompat.getColor(context, R.color.bookshelf_surface))
+        // Newer WebViews pass the system bars and cutout to CSS with viewport-fit=cover.
+        if (getWebViewMajorVersion() < Constants.WEB_VIEW_SAFE_AREA_VERSION) {
+            ViewCompat.setOnApplyWindowInsetsListener(container) { frame, insets ->
+                val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+                frame.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets.inset(safe.left, safe.top, safe.right, safe.bottom)
+            }
+            ViewCompat.requestApplyInsets(container)
+        }
         settings.applyDefault()
         val origin = webRoot.toHttpUrl().newBuilder().encodedPath("/").build().toString().removeSuffix("/")
         val initializeDeviceId = """
