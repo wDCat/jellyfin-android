@@ -1,5 +1,6 @@
 package org.jellyfin.mobile
 
+import android.app.ActivityManager
 import android.app.Service
 import android.content.ComponentName
 import android.content.Intent
@@ -242,9 +243,14 @@ class MainActivity : AppCompatActivity() {
         chromecast.destroy()
         super.onDestroy()
 
-        if (exitProcessOnDestroy) {
+        if (exitProcessOnDestroy && !hasBookshelfTask()) {
             stopService(Intent(this, RemotePlayerService::class.java))
             Process.killProcess(Process.myPid())
         }
+    }
+
+    private fun hasBookshelfTask(): Boolean {
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        return manager.appTasks.any { it.taskInfo.baseActivity?.className == BookshelfActivity::class.java.name }
     }
 }
