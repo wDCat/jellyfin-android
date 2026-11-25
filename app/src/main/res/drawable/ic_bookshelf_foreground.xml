@@ -1,12 +1,49 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#B69DFF"
-        android:pathData="M32,35 Q44,33 53,40 L53,74 Q44,67 32,68 Z" />
-    <path
-        android:fillColor="#76DAF5"
-        android:pathData="M76,35 Q64,33 55,40 L55,74 Q64,67 76,68 Z" />
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+    <group
+        android:translateX="40"
+        android:translateY="40">
+        <!-- Cut through every layer so the mark and page edge survive launcher tinting. -->
+        <clip-path
+            android:fillType="evenOdd"
+            android:pathData="M0,0H160V160H0Z
+                M85,49.19 C78.92,49.19 59.36,84.65 62.34,90.64 C65.32,96.63 104.71,96.56 107.66,90.64
+                C110.61,84.72 91.08,49.19 85,49.19Z
+                M99.85,85.45 C97.92,89.33 72.11,89.38 70.16,85.45 C68.21,81.52 81.02,58.29 85,58.29
+                C88.98,58.29 101.78,81.56 99.85,85.45Z
+                M85,66.78 C82.99,66.78 76.49,78.55 77.48,80.54 C78.47,82.52 91.54,82.5 92.52,80.54
+                C93.5,78.57 87.02,66.78 85,66.78Z
+                M52,120.7 L88,113.5 V116 L52.5,123.1 Q50,123.7 48.5,126 Q48.6,122 52,120.7Z" />
+        <path
+            android:fillColor="@color/ic_bookshelf_binding"
+            android:pathData="M44,43 Q44,31 57,29 L111,23 Q119,22 119,31 V115 Q119,121 111,123 L55,135
+                Q42,137 40,126 Q40,124 40,121 V47Z" />
+        <path
+            android:fillColor="@color/ic_bookshelf_pages"
+            android:pathData="M51,117 L112,105 V117 L54,130 Q47,131 46,126 Q45,120 51,117Z" />
+        <path
+            android:fillColor="@color/ic_bookshelf_ribbon"
+            android:pathData="M91,112.5 L104,110 V131 L97.5,127.5 L91,134Z" />
+        <path android:pathData="M40,45 Q40,33 52,31 L112,23 Q118,22 118,28 V104 Q118,108 114,109
+                L53,121 Q43,122 40,129Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="47"
+                    android:startY="44"
+                    android:endX="114"
+                    android:endY="107"
+                    android:startColor="@color/ic_bookshelf_cover_start"
+                    android:centerColor="@color/ic_bookshelf_cover_center"
+                    android:endColor="@color/ic_bookshelf_cover_end"
+                    android:type="linear" />
+            </aapt:attr>
+        </path>
+        <path
+            android:fillColor="@color/ic_bookshelf_binding"
+            android:pathData="M49,35 Q51,33 54,33 L54,119 L49,120Z" />
+    </group>
 </vector>

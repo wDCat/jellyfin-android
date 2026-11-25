@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 160 160">
+  <title>Jellyfin Bookshelf · 三角书挡</title>
+  <defs><linearGradient id="spectrum" gradientUnits="userSpaceOnUse" x1="30" y1="57" x2="130" y2="113"><stop offset="0%" stop-color="#bc9aff"/><stop offset="48%" stop-color="#92b5ff"/><stop offset="100%" stop-color="#65daf1"/></linearGradient></defs>
+  <rect width="160" height="160" rx="37" fill="#000b25"/>
+  <g>
+    <rect x="28" y="57" width="16" height="53" rx="3" fill="#b89eff"/>
+    <path stroke="#514775" stroke-width="3.5" d="M31.5 68H40.5 M31.5 99H40.5"/>
+    <g transform="rotate(13 64 110)">
+      <rect x="55" y="43" width="16" height="67" rx="3" fill="#94b5fc"/>
+      <path stroke="#405878" stroke-width="3.5" d="M58.5 54H67.5 M58.5 99H67.5"/>
+    </g><path transform="translate(103 84) scale(0.129) translate(-512 -500)" fill="#73d9ef" fill-rule="evenodd" d="m512 284.789466c-57.344 0-241.850182 334.568734-213.736727 391.074914 28.113454 56.50618 399.639277 55.85454 427.473457 0 27.83418-55.85455-156.39273-391.074914-213.73673-391.074914zm140.10182 342.109094c-18.24582 36.58473-261.67855 37.05018-280.11055 0-18.431997-37.05018 102.49309-256.27928 140.00873-256.27928s158.34764 219.60146 140.10182 256.27928zm-140.10182-176.128c-18.99055 0-80.24436 111.05745-70.93527 129.76873 9.30909 18.71127 132.65454 18.52509 141.87054 0s-51.85163-129.76873-70.93527-129.76873z"/>
+    <rect x="24" y="116" width="112" height="7" rx="3.5" fill="url(#spectrum)"/>
+  </g>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 160 160">
+  <title>Jellyfin Bookshelf · 书页托标</title>
+  <defs><linearGradient id="leaf" gradientUnits="userSpaceOnUse" x1="370" y1="315" x2="665" y2="690"><stop offset="0%" stop-color="#b7edaa"/><stop offset="60%" stop-color="#7bd177"/><stop offset="100%" stop-color="#52b54b"/></linearGradient></defs>
+  <rect width="160" height="160" rx="37" fill="#000b25"/>
+  <g>
+    <path transform="translate(80 54) scale(0.139) translate(-512 -500)" fill="url(#leaf)" fill-rule="evenodd" d="m512 284.789466c-57.344 0-241.850182 334.568734-213.736727 391.074914 28.113454 56.50618 399.639277 55.85454 427.473457 0 27.83418-55.85455-156.39273-391.074914-213.73673-391.074914zm140.10182 342.109094c-18.24582 36.58473-261.67855 37.05018-280.11055 0-18.431997-37.05018 102.49309-256.27928 140.00873-256.27928s158.34764 219.60146 140.10182 256.27928zm-140.10182-176.128c-18.99055 0-80.24436 111.05745-70.93527 129.76873 9.30909 18.71127 132.65454 18.52509 141.87054 0s-51.85163-129.76873-70.93527-129.76873z"/>
+    <path fill="#a4e7ad" d="M29 76 Q49 76 66 85 Q74 89 78 94 V120 Q69 113 57 108 Q43 103 29 103 Q27 103 27 101 V78 Q27 76 29 76Z"/>
+    <path fill="#59bd63" d="M131 76 Q111 76 94 85 Q86 89 82 94 V120 Q91 113 103 108 Q117 103 131 103 Q133 103 133 101 V78 Q133 76 131 76Z"/>
+    <path fill="none" stroke="#80cf81" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" d="M27 110 Q57 111 80 128 Q103 111 133 110"/>
+  </g>
+</svg>

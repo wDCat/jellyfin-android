@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 160 160">
+  <title>Jellyfin Bookshelf · 书页入标</title>
+  <defs><linearGradient id="frame" gradientUnits="userSpaceOnUse" x1="312" y1="422" x2="708" y2="612"><stop offset="0%" stop-color="#bd9aff"/><stop offset="48%" stop-color="#97b3ff"/><stop offset="100%" stop-color="#66d9ef"/></linearGradient></defs>
+  <rect width="160" height="160" rx="37" fill="#000b25"/>
+  <g>
+    <path transform="translate(80 78) scale(0.245) translate(-512 -500)" fill="url(#frame)" fill-rule="evenodd" d="m512 284.789466c-57.344 0-241.850182 334.568734-213.736727 391.074914 28.113454 56.50618 399.639277 55.85454 427.473457 0 27.83418-55.85455-156.39273-391.074914-213.73673-391.074914zm140.10182 342.109094c-18.24582 36.58473-261.67855 37.05018-280.11055 0-18.431997-37.05018 102.49309-256.27928 140.00873-256.27928s158.34764 219.60146 140.10182 256.27928z"/>
+    <path fill="#cdbbff" d="M59 83 Q70 82 78.5 89 V106 Q69 99.5 58 100 V85 Q58 83.5 59 83Z"/>
+    <path fill="#86ddf5" d="M101 83 Q90 82 81.5 89 V106 Q91 99.5 102 100 V85 Q102 83.5 101 83Z"/>
+  </g>
+</svg>

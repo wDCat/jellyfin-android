@@ -1,0 +1,8 @@
+<resources>
+    <color name="ic_bookshelf_cover_start">@color/ic_launcher_gradient_start</color>
+    <color name="ic_bookshelf_cover_center">#F8803E</color>
+    <color name="ic_bookshelf_cover_end">@color/ic_launcher_gradient_end</color>
+    <color name="ic_bookshelf_binding">#AB4333</color>
+    <color name="ic_bookshelf_pages">#FFEDCC</color>
+    <color name="ic_bookshelf_ribbon">#FFAF36</color>
+</resources>

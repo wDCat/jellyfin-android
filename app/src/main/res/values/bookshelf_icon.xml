@@ -1,0 +1,8 @@
+<resources>
+    <color name="ic_bookshelf_cover_start">#CDADFF</color>
+    <color name="ic_bookshelf_cover_center">#ACACF9</color>
+    <color name="ic_bookshelf_cover_end">#7BBFEA</color>
+    <color name="ic_bookshelf_binding">#807ACB</color>
+    <color name="ic_bookshelf_pages">#E6E5FF</color>
+    <color name="ic_bookshelf_ribbon">#6FD9EB</color>
+</resources>
